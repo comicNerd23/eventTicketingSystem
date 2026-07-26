@@ -1,0 +1,483 @@
+asyncapi: 2.6.0
+info:
+  title: Event Ticketing Platform — Kafka Event Contracts
+  version: 1.0.0
+  description: |
+    Defines every Kafka topic, event payload schema, and producer/consumer relationships
+    for the Event Ticketing Platform.
+
+    ## Saga flow summary
+    ```
+    [booking-service] --payment-initiated--> [payment-service]
+    [payment-service] --payment-completed--> [booking-service]
+    [payment-service] --payment-failed-----> [booking-service]
+    [booking-service] --ticket-issued------> [notification-service]
+    [booking-service] --seat-released------> [waitlist-service]
+    [booking-service] --seat-hold-expired--> [waitlist-service, notification-service]
+    [booking-service] --booking-cancelled--> [payment-service, notification-service, waitlist-service]
+    [waitlist-service]--waitlist-promoted--> [notification-service]
+    ```
+
+    ## Envelope convention
+    Every event shares a common envelope (see `EventEnvelope` schema):
+    - `eventId`   — UUID, used for idempotency deduplication
+    - `eventType` — matches the channel name
+    - `occurredAt` — ISO-8601 timestamp of when the event occurred
+    - `payload`   — the event-specific body
+
+    ## Kafka topic configuration (defaults)
+    - Partitions: 3 (keyed on aggregateId for ordering per entity)
+    - Replication factor: 1 (local dev), 3 (production)
+    - Retention: 7 days
+
+servers:
+  local:
+    url: localhost:9092
+    protocol: kafka
+    description: Local Kafka broker (Docker Compose)
+  production:
+    url: kafka.ticketing.internal:9092
+    protocol: kafka
+    description: Production Kafka cluster
+
+defaultContentType: application/json
+
+channels:
+
+  payment-initiated:
+    description: |
+      Published by booking-service when a user confirms a HELD booking.
+      Consumed by payment-service to begin charging the user via Stripe.
+      Kafka key: bookingId (ensures all events for a booking go to the same partition).
+    bindings:
+      kafka:
+        topic: payment-initiated
+        partitions: 3
+        replicas: 1
+    publish:
+      operationId: publishPaymentInitiated
+      summary: booking-service publishes when user confirms checkout
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: bookingId (UUID)
+      message:
+        $ref: '#/components/messages/PaymentInitiatedEvent'
+    subscribe:
+      operationId: consumePaymentInitiated
+      summary: payment-service consumes to charge the user
+      bindings:
+        kafka:
+          groupId: payment-service-group
+      message:
+        $ref: '#/components/messages/PaymentInitiatedEvent'
+
+  payment-completed:
+    description: |
+      Published by payment-service when Stripe confirms a successful charge.
+      Consumed by booking-service to transition seat status to BOOKED and publish ticket-issued.
+    bindings:
+      kafka:
+        topic: payment-completed
+        partitions: 3
+        replicas: 1
+    publish:
+      operationId: publishPaymentCompleted
+      summary: payment-service publishes on Stripe success
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: bookingId (UUID)
+      message:
+        $ref: '#/components/messages/PaymentCompletedEvent'
+    subscribe:
+      operationId: consumePaymentCompleted
+      summary: booking-service consumes to confirm the booking
+      bindings:
+        kafka:
+          groupId: booking-service-group
+      message:
+        $ref: '#/components/messages/PaymentCompletedEvent'
+
+  payment-failed:
+    description: |
+      Published by payment-service when Stripe declines or an error occurs.
+      Consumed by booking-service to release the Redis seat lock and publish seat-released.
+    bindings:
+      kafka:
+        topic: payment-failed
+        partitions: 3
+        replicas: 1
+    publish:
+      operationId: publishPaymentFailed
+      summary: payment-service publishes on Stripe failure
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: bookingId (UUID)
+      message:
+        $ref: '#/components/messages/PaymentFailedEvent'
+    subscribe:
+      operationId: consumePaymentFailed
+      summary: booking-service consumes to release the seat hold
+      bindings:
+        kafka:
+          groupId: booking-service-group
+      message:
+        $ref: '#/components/messages/PaymentFailedEvent'
+
+  ticket-issued:
+    description: |
+      Published by booking-service once a booking is fully CONFIRMED (payment succeeded).
+      Consumed by notification-service to send the confirmation email with the e-ticket.
+    bindings:
+      kafka:
+        topic: ticket-issued
+        partitions: 3
+        replicas: 1
+    publish:
+      operationId: publishTicketIssued
+      summary: booking-service publishes after confirming booking
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: bookingId (UUID)
+      message:
+        $ref: '#/components/messages/TicketIssuedEvent'
+    subscribe:
+      operationId: consumeTicketIssued
+      summary: notification-service consumes to send confirmation email
+      bindings:
+        kafka:
+          groupId: notification-service-group
+      message:
+        $ref: '#/components/messages/TicketIssuedEvent'
+
+  seat-released:
+    description: |
+      Published by booking-service when a payment fails.
+      Consumed by waitlist-service to promote the next user in the queue.
+      Note: seat-hold-expired covers the TTL expiry case; this covers explicit payment failure.
+    bindings:
+      kafka:
+        topic: seat-released
+        partitions: 3
+        replicas: 1
+    publish:
+      operationId: publishSeatReleased
+      summary: booking-service publishes after payment failure
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: seatId (UUID)
+      message:
+        $ref: '#/components/messages/SeatReleasedEvent'
+    subscribe:
+      operationId: consumeSeatReleased
+      summary: waitlist-service consumes to notify next waitlisted user
+      bindings:
+        kafka:
+          groupId: waitlist-service-group
+      message:
+        $ref: '#/components/messages/SeatReleasedEvent'
+
+  seat-hold-expired:
+    description: |
+      Published by booking-service when a Redis seat hold TTL expires.
+      Booking-service uses Redis keyspace notifications to detect expiry,
+      then publishes this event.
+      Consumed by:
+        - waitlist-service: to promote the next user
+        - notification-service: to notify the original holder that their time ran out
+    bindings:
+      kafka:
+        topic: seat-hold-expired
+        partitions: 3
+        replicas: 1
+    publish:
+      operationId: publishSeatHoldExpired
+      summary: booking-service publishes on Redis TTL expiry
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: seatId (UUID)
+      message:
+        $ref: '#/components/messages/SeatHoldExpiredEvent'
+    subscribe:
+      operationId: consumeSeatHoldExpired
+      summary: waitlist-service and notification-service consume this event
+      bindings:
+        kafka:
+          groupId:
+            oneOf:
+              - const: waitlist-service-group
+              - const: notification-service-group
+      message:
+        $ref: '#/components/messages/SeatHoldExpiredEvent'
+
+  booking-cancelled:
+    description: |
+      Published by booking-service when a user cancels a CONFIRMED booking.
+      Consumed by:
+        - payment-service: to initiate a Stripe refund
+        - notification-service: to send a cancellation confirmation email
+        - waitlist-service: to promote the next user in the queue
+    bindings:
+      kafka:
+        topic: booking-cancelled
+        partitions: 3
+        replicas: 1
+    publish:
+      operationId: publishBookingCancelled
+      summary: booking-service publishes on user-initiated cancellation
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: bookingId (UUID)
+      message:
+        $ref: '#/components/messages/BookingCancelledEvent'
+    subscribe:
+      operationId: consumeBookingCancelled
+      summary: payment-service, notification-service, waitlist-service consume this
+      bindings:
+        kafka:
+          groupId:
+            oneOf:
+              - const: payment-service-group
+              - const: notification-service-group
+              - const: waitlist-service-group
+      message:
+        $ref: '#/components/messages/BookingCancelledEvent'
+
+  waitlist-promoted:
+    description: |
+      Published by waitlist-service when it promotes the next user in the queue
+      (triggered by seat-released, seat-hold-expired, or booking-cancelled events).
+      Consumed by notification-service to send the offer email with a time-limited booking link.
+    bindings:
+      kafka:
+        topic: waitlist-promoted
+        partitions: 3
+        replicas: 1
+    publish:
+      operationId: publishWaitlistPromoted
+      summary: waitlist-service publishes when promoting next user
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: userId (UUID) of the promoted user
+      message:
+        $ref: '#/components/messages/WaitlistPromotedEvent'
+    subscribe:
+      operationId: consumeWaitlistPromoted
+      summary: notification-service consumes to send the offer email
+      bindings:
+        kafka:
+          groupId: notification-service-group
+      message:
+        $ref: '#/components/messages/WaitlistPromotedEvent'
+
+components:
+
+  messages:
+
+    PaymentInitiatedEvent:
+      name: PaymentInitiatedEvent
+      title: Payment Initiated
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/PaymentInitiatedPayload'
+
+    PaymentCompletedEvent:
+      name: PaymentCompletedEvent
+      title: Payment Completed
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/PaymentCompletedPayload'
+
+    PaymentFailedEvent:
+      name: PaymentFailedEvent
+      title: Payment Failed
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/PaymentFailedPayload'
+
+    TicketIssuedEvent:
+      name: TicketIssuedEvent
+      title: Ticket Issued
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/TicketIssuedPayload'
+
+    SeatReleasedEvent:
+      name: SeatReleasedEvent
+      title: Seat Released
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/SeatReleasedPayload'
+
+    SeatHoldExpiredEvent:
+      name: SeatHoldExpiredEvent
+      title: Seat Hold Expired
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/SeatHoldExpiredPayload'
+
+    BookingCancelledEvent:
+      name: BookingCancelledEvent
+      title: Booking Cancelled
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BookingCancelledPayload'
+
+    WaitlistPromotedEvent:
+      name: WaitlistPromotedEvent
+      title: Waitlist Promoted
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/WaitlistPromotedPayload'
+
+  schemas:
+
+    EventEnvelope:
+      type: object
+      required: [eventId, eventType, occurredAt, payload]
+      properties:
+        eventId:    { type: string, format: uuid, description: "Unique event ID for idempotency" }
+        eventType:  { type: string }
+        occurredAt: { type: string, format: date-time }
+        payload:    { type: object }
+
+    PaymentInitiatedPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [bookingId, userId, amountGbp, stripePaymentMethodId]
+              properties:
+                bookingId:              { type: string, format: uuid }
+                userId:                 { type: string, format: uuid }
+                amountGbp:              { type: number, format: double }
+                stripePaymentMethodId:  { type: string, description: "pm_xxx from Stripe" }
+                eventId:                { type: string, format: uuid }
+                seatId:                 { type: string, format: uuid }
+
+    PaymentCompletedPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [bookingId, paymentId, stripePaymentIntentId]
+              properties:
+                bookingId:              { type: string, format: uuid }
+                paymentId:              { type: string, format: uuid }
+                stripePaymentIntentId:  { type: string }
+                amountGbp:              { type: number, format: double }
+
+    PaymentFailedPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [bookingId, paymentId, failureReason]
+              properties:
+                bookingId:     { type: string, format: uuid }
+                paymentId:     { type: string, format: uuid }
+                failureReason: { type: string, description: "Stripe decline code or error message" }
+
+    TicketIssuedPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [bookingId, userId, userEmail, ticketReference, eventTitle, seatLabel, startsAt]
+              properties:
+                bookingId:       { type: string, format: uuid }
+                userId:          { type: string, format: uuid }
+                userEmail:       { type: string, format: email }
+                ticketReference: { type: string, example: "TKT-2024-ABCD" }
+                eventTitle:      { type: string }
+                venueName:       { type: string }
+                seatLabel:       { type: string }
+                startsAt:        { type: string, format: date-time }
+
+    SeatReleasedPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [seatId, eventId, reason]
+              properties:
+                seatId:    { type: string, format: uuid }
+                eventId:   { type: string, format: uuid }
+                bookingId: { type: string, format: uuid }
+                reason:
+                  type: string
+                  enum: [PAYMENT_FAILED]
+
+    SeatHoldExpiredPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [seatId, eventId, bookingId, userId, userEmail]
+              properties:
+                seatId:    { type: string, format: uuid }
+                eventId:   { type: string, format: uuid }
+                bookingId: { type: string, format: uuid }
+                userId:    { type: string, format: uuid }
+                userEmail: { type: string, format: email }
+
+    BookingCancelledPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [bookingId, userId, seatId, eventId]
+              properties:
+                bookingId:     { type: string, format: uuid }
+                userId:        { type: string, format: uuid }
+                userEmail:     { type: string, format: email }
+                seatId:        { type: string, format: uuid }
+                eventId:       { type: string, format: uuid }
+                paymentId:     { type: string, format: uuid, description: "Present if payment was made (refund needed)" }
+                amountGbp:     { type: number, format: double }
+
+    WaitlistPromotedPayload:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          properties:
+            payload:
+              type: object
+              required: [waitlistEntryId, userId, userEmail, eventId, eventTitle, offerExpiresAt]
+              properties:
+                waitlistEntryId: { type: string, format: uuid }
+                userId:          { type: string, format: uuid }
+                userEmail:       { type: string, format: email }
+                eventId:         { type: string, format: uuid }
+                eventTitle:      { type: string }
+                offerExpiresAt:  { type: string, format: date-time, description: "User must book before this time" }
+                bookingLink:     { type: string, description: "Time-limited deep link to booking page" }

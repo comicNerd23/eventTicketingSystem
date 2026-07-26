@@ -1,0 +1,136 @@
+openapi: 3.1.0
+info:
+  title: Payment Service API
+  description: |
+    Handles payment processing via Stripe sandbox.
+
+    ## How payments are triggered
+    Payment Service does NOT expose a `POST /pay` endpoint.
+    Payments are initiated by consuming the `payment-initiated` Kafka event published
+    by booking-service. This keeps payment-service decoupled from booking-service.
+
+    The REST API here is for read-only status queries and Stripe webhook ingestion.
+
+    ## Stripe webhook
+    Stripe calls `POST /payments/webhook` to deliver async payment events
+    (payment_intent.succeeded, payment_intent.payment_failed, charge.refunded).
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8083
+    description: Local development
+
+tags:
+  - name: Payments
+  - name: Webhooks
+
+paths:
+
+  /payments/{paymentId}:
+    get:
+      tags: [Payments]
+      summary: Get payment status
+      operationId: getPayment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Payment details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /payments/bookings/{bookingId}:
+    get:
+      tags: [Payments]
+      summary: Get payment for a booking
+      operationId: getPaymentByBooking
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: bookingId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Payment details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /payments/webhook:
+    post:
+      tags: [Webhooks]
+      summary: Stripe webhook receiver
+      description: |
+        Receives Stripe webhook events. The `Stripe-Signature` header is verified
+        against the webhook secret before processing.
+      operationId: handleStripeWebhook
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Raw Stripe event payload
+      responses:
+        '200':
+          description: Webhook received and queued for processing
+        '400':
+          description: Invalid signature or malformed payload
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+
+    Payment:
+      type: object
+      properties:
+        id:               { type: string, format: uuid }
+        bookingId:        { type: string, format: uuid }
+        userId:           { type: string, format: uuid }
+        amountGbp:        { type: number, format: double }
+        status:
+          type: string
+          enum: [PENDING, SUCCEEDED, FAILED, REFUNDED]
+        stripePaymentIntentId: { type: string }
+        failureReason:    { type: string }
+        createdAt:        { type: string, format: date-time }
+        updatedAt:        { type: string, format: date-time }
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:    { type: integer }
+        error:     { type: string }
+        message:   { type: string }
+        path:      { type: string }
+        timestamp: { type: string, format: date-time }

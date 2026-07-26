@@ -1,0 +1,234 @@
+openapi: 3.1.0
+info:
+  title: Booking Service API
+  description: |
+    Manages seat holds and bookings. Core of the ticketing platform.
+
+    ## Seat hold flow
+    1. `POST /bookings/hold` — atomically acquires a Redis lock on the seat and returns a holdId.
+       The hold expires automatically after 10 minutes (TTL in Redis).
+    2. `POST /bookings/{bookingId}/confirm` — confirms the hold, triggering the payment Saga.
+    3. On payment success the booking transitions to CONFIRMED and a ticket is issued.
+    4. On payment failure the hold is released and the next waitlisted user is notified.
+
+    ## WebSocket
+    Connect to `ws://<host>/ws` with STOMP over SockJS.
+    Subscribe to `/topic/events/{eventId}/seats` to receive real-time seat status updates.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8082
+    description: Local development
+
+tags:
+  - name: Bookings
+
+paths:
+
+  /bookings/hold:
+    post:
+      tags: [Bookings]
+      summary: Hold a seat
+      description: |
+        Atomically acquires a Redis distributed lock on the requested seat.
+        Returns a booking in HELD state valid for 10 minutes.
+        Fails immediately if another user already holds the seat.
+      operationId: holdSeat
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HoldSeatRequest' }
+      responses:
+        '201':
+          description: Seat held successfully
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '409':
+          description: Seat already held or booked by another user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /bookings/{bookingId}:
+    parameters:
+      - name: bookingId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    get:
+      tags: [Bookings]
+      summary: Get booking by ID
+      operationId: getBooking
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Booking details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /bookings/{bookingId}/confirm:
+    post:
+      tags: [Bookings]
+      summary: Confirm a held booking
+      description: |
+        Transitions the booking from HELD to PAYMENT_PENDING and publishes
+        a `payment-initiated` Kafka event to trigger the payment Saga.
+      operationId: confirmBooking
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: bookingId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfirmBookingRequest' }
+      responses:
+        '200':
+          description: Booking confirmed, payment initiated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '409':
+          description: Booking is not in HELD state (already expired or confirmed)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /bookings/{bookingId}/cancel:
+    post:
+      tags: [Bookings]
+      summary: Cancel a booking
+      description: |
+        Cancels a HELD or CONFIRMED booking. For CONFIRMED bookings a refund
+        is triggered via a `booking-cancelled` Kafka event consumed by payment-service.
+      operationId: cancelBooking
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: bookingId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Booking cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /bookings:
+    get:
+      tags: [Bookings]
+      summary: List bookings for the authenticated user
+      operationId: listMyBookings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [HELD, PAYMENT_PENDING, CONFIRMED, CANCELLED, EXPIRED] }
+        - name: page
+          in: query
+          schema: { type: integer, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Paginated list of user bookings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingPage' }
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequest:
+      description: Invalid request payload
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+
+    HoldSeatRequest:
+      type: object
+      required: [eventId, seatId]
+      properties:
+        eventId: { type: string, format: uuid }
+        seatId:  { type: string, format: uuid }
+
+    ConfirmBookingRequest:
+      type: object
+      required: [stripePaymentMethodId]
+      properties:
+        stripePaymentMethodId:
+          type: string
+          description: Stripe PaymentMethod ID from the frontend (pm_xxx)
+
+    Booking:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        eventId:     { type: string, format: uuid }
+        eventTitle:  { type: string }
+        seatId:      { type: string, format: uuid }
+        seatLabel:   { type: string, example: "B7" }
+        userId:      { type: string, format: uuid }
+        status:
+          type: string
+          enum: [HELD, PAYMENT_PENDING, CONFIRMED, CANCELLED, EXPIRED]
+        totalAmountGbp: { type: number, format: double }
+        holdExpiresAt:  { type: string, format: date-time }
+        confirmedAt:    { type: string, format: date-time }
+        cancelledAt:    { type: string, format: date-time }
+        ticketReference: { type: string, description: "Human-readable ticket code e.g. TKT-2024-ABCD" }
+        createdAt:      { type: string, format: date-time }
+
+    BookingPage:
+      type: object
+      properties:
+        content:       { type: array, items: { $ref: '#/components/schemas/Booking' } }
+        totalElements: { type: integer }
+        totalPages:    { type: integer }
+        page:          { type: integer }
+        size:          { type: integer }
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:    { type: integer }
+        error:     { type: string }
+        message:   { type: string }
+        path:      { type: string }
+        timestamp: { type: string, format: date-time }

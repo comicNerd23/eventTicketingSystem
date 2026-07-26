@@ -1,0 +1,146 @@
+openapi: 3.1.0
+info:
+  title: Waitlist Service API
+  description: |
+    Manages waitlists for sold-out events.
+
+    When a booking is cancelled or a seat hold expires, waitlist-service
+    is notified via Kafka and promotes the next user in the queue.
+    The promoted user receives an email (via notification-service) with a
+    time-limited direct booking link.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8084
+    description: Local development
+
+tags:
+  - name: Waitlist
+
+paths:
+
+  /waitlist:
+    post:
+      tags: [Waitlist]
+      summary: Join waitlist for an event
+      operationId: joinWaitlist
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/JoinWaitlistRequest' }
+      responses:
+        '201':
+          description: Joined waitlist successfully
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WaitlistEntry' }
+        '409':
+          description: User already on waitlist for this event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /waitlist/{entryId}:
+    parameters:
+      - name: entryId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    get:
+      tags: [Waitlist]
+      summary: Get waitlist entry (includes current queue position)
+      operationId: getWaitlistEntry
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Waitlist entry with current position
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WaitlistEntry' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Waitlist]
+      summary: Leave waitlist
+      operationId: leaveWaitlist
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Removed from waitlist
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /waitlist/events/{eventId}/me:
+    get:
+      tags: [Waitlist]
+      summary: Get the authenticated user's waitlist entry for an event
+      operationId: getMyWaitlistEntryForEvent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Waitlist entry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WaitlistEntry' }
+        '404':
+          description: User is not on the waitlist for this event
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+
+    JoinWaitlistRequest:
+      type: object
+      required: [eventId]
+      properties:
+        eventId: { type: string, format: uuid }
+
+    WaitlistEntry:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        eventId:   { type: string, format: uuid }
+        eventTitle: { type: string }
+        userId:    { type: string, format: uuid }
+        position:  { type: integer, description: "Current position in queue (1 = next to be offered a seat)" }
+        status:
+          type: string
+          enum: [WAITING, PROMOTED, EXPIRED, LEFT]
+        promotedAt:  { type: string, format: date-time }
+        offerExpiresAt: { type: string, format: date-time, description: "When the promoted offer expires" }
+        joinedAt:    { type: string, format: date-time }
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:    { type: integer }
+        error:     { type: string }
+        message:   { type: string }
+        path:      { type: string }
+        timestamp: { type: string, format: date-time }

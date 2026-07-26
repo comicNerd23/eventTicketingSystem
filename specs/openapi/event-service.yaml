@@ -1,0 +1,358 @@
+openapi: 3.1.0
+info:
+  title: Event Service API
+  description: Manages events, venues, and seat inventory for the ticketing platform.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8081
+    description: Local development
+
+tags:
+  - name: Events
+  - name: Venues
+  - name: Seats
+
+paths:
+
+  /events:
+    get:
+      tags: [Events]
+      summary: List events
+      operationId: listEvents
+      parameters:
+        - name: city
+          in: query
+          schema: { type: string }
+        - name: category
+          in: query
+          schema: { type: string, enum: [CONCERT, SPORTS, THEATRE, COMEDY, OTHER] }
+        - name: dateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: dateTo
+          in: query
+          schema: { type: string, format: date }
+        - name: page
+          in: query
+          schema: { type: integer, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Paginated list of events
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventPage' }
+
+    post:
+      tags: [Events]
+      summary: Create an event
+      operationId: createEvent
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateEventRequest' }
+      responses:
+        '201':
+          description: Event created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Event' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /events/{eventId}:
+    parameters:
+      - name: eventId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    get:
+      tags: [Events]
+      summary: Get event by ID
+      operationId: getEvent
+      responses:
+        '200':
+          description: Event details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Event' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Events]
+      summary: Update an event
+      operationId: updateEvent
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateEventRequest' }
+      responses:
+        '200':
+          description: Updated event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Event' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Events]
+      summary: Cancel an event
+      operationId: cancelEvent
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Event cancelled
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /events/{eventId}/seats:
+    get:
+      tags: [Seats]
+      summary: Get seat map for an event
+      operationId: getSeatMap
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Seat map with availability status per seat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeatMap' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /venues:
+    get:
+      tags: [Venues]
+      summary: List venues
+      operationId: listVenues
+      parameters:
+        - name: city
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: List of venues
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Venue' }
+
+    post:
+      tags: [Venues]
+      summary: Create a venue
+      operationId: createVenue
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateVenueRequest' }
+      responses:
+        '201':
+          description: Venue created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Venue' }
+
+  /venues/{venueId}:
+    get:
+      tags: [Venues]
+      summary: Get venue by ID
+      operationId: getVenue
+      parameters:
+        - name: venueId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Venue details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Venue' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequest:
+      description: Invalid request payload
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+
+    Event:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        title:       { type: string }
+        description: { type: string }
+        category:    { type: string, enum: [CONCERT, SPORTS, THEATRE, COMEDY, OTHER] }
+        venueId:     { type: string, format: uuid }
+        venueName:   { type: string }
+        city:        { type: string }
+        startsAt:    { type: string, format: date-time }
+        endsAt:      { type: string, format: date-time }
+        status:      { type: string, enum: [DRAFT, PUBLISHED, SOLD_OUT, CANCELLED] }
+        organizerId: { type: string, format: uuid }
+        totalSeats:  { type: integer }
+        availableSeats: { type: integer }
+        imageUrl:    { type: string }
+        createdAt:   { type: string, format: date-time }
+
+    CreateEventRequest:
+      type: object
+      required: [title, category, venueId, startsAt, endsAt]
+      properties:
+        title:       { type: string, minLength: 3, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        category:    { type: string, enum: [CONCERT, SPORTS, THEATRE, COMEDY, OTHER] }
+        venueId:     { type: string, format: uuid }
+        startsAt:    { type: string, format: date-time }
+        endsAt:      { type: string, format: date-time }
+        imageUrl:    { type: string }
+
+    UpdateEventRequest:
+      type: object
+      properties:
+        title:       { type: string, minLength: 3, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        startsAt:    { type: string, format: date-time }
+        endsAt:      { type: string, format: date-time }
+        imageUrl:    { type: string }
+
+    EventPage:
+      type: object
+      properties:
+        content:       { type: array, items: { $ref: '#/components/schemas/Event' } }
+        totalElements: { type: integer }
+        totalPages:    { type: integer }
+        page:          { type: integer }
+        size:          { type: integer }
+
+    Venue:
+      type: object
+      properties:
+        id:         { type: string, format: uuid }
+        name:       { type: string }
+        address:    { type: string }
+        city:       { type: string }
+        country:    { type: string }
+        capacity:   { type: integer }
+        sections:
+          type: array
+          items: { $ref: '#/components/schemas/Section' }
+
+    CreateVenueRequest:
+      type: object
+      required: [name, address, city, country, sections]
+      properties:
+        name:     { type: string }
+        address:  { type: string }
+        city:     { type: string }
+        country:  { type: string }
+        sections:
+          type: array
+          items: { $ref: '#/components/schemas/CreateSectionRequest' }
+
+    Section:
+      type: object
+      properties:
+        id:       { type: string, format: uuid }
+        name:     { type: string }
+        rows:     { type: integer }
+        seatsPerRow: { type: integer }
+
+    CreateSectionRequest:
+      type: object
+      required: [name, rows, seatsPerRow]
+      properties:
+        name:        { type: string }
+        rows:        { type: integer, minimum: 1 }
+        seatsPerRow: { type: integer, minimum: 1 }
+
+    SeatMap:
+      type: object
+      properties:
+        eventId: { type: string, format: uuid }
+        sections:
+          type: array
+          items: { $ref: '#/components/schemas/SeatSection' }
+
+    SeatSection:
+      type: object
+      properties:
+        sectionId:   { type: string, format: uuid }
+        sectionName: { type: string }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/SeatRow' }
+
+    SeatRow:
+      type: object
+      properties:
+        rowLabel: { type: string }
+        seats:
+          type: array
+          items: { $ref: '#/components/schemas/Seat' }
+
+    Seat:
+      type: object
+      properties:
+        seatId:    { type: string, format: uuid }
+        label:     { type: string, example: "A12" }
+        status:    { type: string, enum: [AVAILABLE, HELD, BOOKED, UNAVAILABLE] }
+        priceGbp:  { type: number, format: double }
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:  { type: integer }
+        error:   { type: string }
+        message: { type: string }
+        path:    { type: string }
+        timestamp: { type: string, format: date-time }
