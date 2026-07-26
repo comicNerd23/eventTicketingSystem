@@ -1,6 +1,5 @@
 package com.ticketing.booking.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ticketing.booking.domain.Booking;
 import com.ticketing.booking.domain.BookingStatus;
 import com.ticketing.booking.dto.BookingResponse;

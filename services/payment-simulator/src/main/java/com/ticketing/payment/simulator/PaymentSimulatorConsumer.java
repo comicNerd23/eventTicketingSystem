@@ -1,10 +1,8 @@
 package com.ticketing.payment.simulator;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -22,9 +20,7 @@ public class PaymentSimulatorConsumer {
     private static final Logger log = LoggerFactory.getLogger(PaymentSimulatorConsumer.class);
 
     private final KafkaTemplate<String, String> kafka;
-    private final ObjectMapper objectMapper = new ObjectMapper()
-        .registerModule(new JavaTimeModule())
-        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public PaymentSimulatorConsumer(KafkaTemplate<String, String> kafka) {
         this.kafka = kafka;
@@ -52,7 +48,7 @@ public class PaymentSimulatorConsumer {
         }
     }
 
-    private void publishPaymentCompleted(String bookingId, double amountGbp) throws JsonProcessingException {
+    private void publishPaymentCompleted(String bookingId, double amountGbp) throws JacksonException {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("bookingId", bookingId);
         payload.put("paymentId", UUID.randomUUID().toString());

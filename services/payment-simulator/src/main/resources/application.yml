@@ -12,10 +12,6 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       auto-offset-reset: earliest
 
-  jackson:
-    serialization:
-      write-dates-as-timestamps: false
-
 logging:
   level:
     com.ticketing: INFO

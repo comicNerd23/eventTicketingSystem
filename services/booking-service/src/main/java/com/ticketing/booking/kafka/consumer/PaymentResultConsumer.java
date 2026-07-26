@@ -1,7 +1,7 @@
 package com.ticketing.booking.kafka.consumer;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.ticketing.booking.service.BookingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -1,6 +1,6 @@
 package com.ticketing.booking.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.ticketing.booking.domain.Booking;
 import com.ticketing.booking.domain.BookingStatus;
 import com.ticketing.booking.dto.BookingResponse;
@@ -12,8 +12,8 @@ import com.ticketing.booking.exception.SeatAlreadyHeldException;
 import com.ticketing.booking.service.BookingService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -31,7 +31,7 @@ class BookingControllerTest {
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper objectMapper;
-    @MockBean BookingService bookingService;
+    @MockitoBean BookingService bookingService;
 
     private static final String USER_ID = "00000000-0000-0000-0000-000000000001";
 

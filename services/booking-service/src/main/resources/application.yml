@@ -39,10 +39,6 @@ spring:
       auto-offset-reset: earliest
       enable-auto-commit: true
 
-  jackson:
-    serialization:
-      write-dates-as-timestamps: false
-
 logging:
   level:
     com.ticketing: DEBUG

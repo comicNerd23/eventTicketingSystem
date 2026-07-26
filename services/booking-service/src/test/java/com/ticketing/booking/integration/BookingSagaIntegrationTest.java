@@ -1,6 +1,6 @@
 package com.ticketing.booking.integration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.ticketing.booking.domain.Booking;
 import com.ticketing.booking.domain.BookingStatus;
 import com.ticketing.booking.dto.BookingResponse;
@@ -12,8 +12,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.SpyBean;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpEntity;
@@ -25,10 +26,10 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.time.Instant;
@@ -43,6 +44,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.then;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestRestTemplate
 @Testcontainers
 class BookingSagaIntegrationTest {
 
@@ -52,7 +54,7 @@ class BookingSagaIntegrationTest {
 
     @Container
     @ServiceConnection
-    static KafkaContainer kafka = new KafkaContainer(
+    static ConfluentKafkaContainer kafka = new ConfluentKafkaContainer(
         DockerImageName.parse("confluentinc/cp-kafka:7.5.0"));
 
     @Container
@@ -73,7 +75,7 @@ class BookingSagaIntegrationTest {
     @Autowired ObjectMapper objectMapper;
 
     // SpyBean lets the real implementation run while still allowing Mockito verification
-    @SpyBean BookingEventPublisher eventPublisher;
+    @MockitoSpyBean BookingEventPublisher eventPublisher;
 
     private static final String USER_ID = "00000000-0000-0000-0000-000000000099";
     private UUID eventId;
