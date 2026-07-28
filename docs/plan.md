@@ -36,9 +36,17 @@ Each slice must:
 ## Phase 3 progress
 
 ### booking-service — done
-Happy-path slice: hold seat → confirm booking → saga via Kafka. 35 tests passing (unit, controller, repository via Testcontainers Cloud, saga integration). Migrated to Spring Boot 4.1.0 / Java 25 (see `docs/spring-boot-4-migration.md`).
+Happy-path slice: hold seat → confirm booking → saga via Kafka. 39 tests passing (unit, controller, repository via Testcontainers Cloud, saga integration). Migrated to Spring Boot 4.1.0 / Java 25 (see `docs/spring-boot-4-migration.md`).
 
-Note: booking-service currently accepts event/seat data directly in the request body (client-supplied `eventId`, `eventTitle`, `seatId`, `seatLabel`, `priceGbp`) — it does not yet call a real event-service. Wiring booking-service to real event data is a future slice, after event-service exists.
+### booking-service ↔ event-service — event-level binding done
+
+`booking-service` now calls `event-service` (`GET /events/{id}`) via a Spring `RestClient` (`EventServiceClient`) when holding a seat: it validates the event exists and fetches its real `title`, replacing the previously client-supplied `eventTitle` field. Returns 404 (`EventNotFoundException`) if the event doesn't exist, 503 (`EventServiceUnavailableException`) if event-service is unreachable.
+
+Seat-level fields (`seatId`, `seatLabel`, `priceGbp`) remain client-supplied — `event-service` has no per-seat model yet (only aggregate `Section` row/seat counts), so full seat-level binding is deferred until seat map generation exists (see below).
+
+Config: `event.service.base-url` (`http://localhost:8081` locally, `http://event-service:8081` in docker-compose via `EVENT_SERVICE_BASE_URL`). Verified against the real containerized event-service via `demo.sh` (not just a mocked integration test) — confirmed `eventTitle` in the booking response is fetched live, not client-supplied.
+
+Also fixed while verifying end-to-end: `payment-simulator`'s `pom.xml` still declared `spring-kafka` instead of `spring-boot-starter-kafka` (a leftover gap from the earlier Spring Boot 4 migration), which meant it had no autoconfigured `KafkaTemplate` bean and crash-looped instead of consuming `payment-initiated` — silently masked before because `BookingSagaIntegrationTest` publishes `payment-completed` directly via its own Testcontainers Kafka rather than exercising the real `payment-simulator`.
 
 ### event-service — Slice 1 done
 
@@ -49,9 +57,9 @@ Note: booking-service currently accepts event/seat data directly in the request 
 
 Spring Boot 4.1.0 / Java 25, real Postgres persistence (own database `ticketing_events`, database-per-service). 13 tests passing: `VenueControllerTest` (2), `EventControllerTest` (6), `VenueRepositoryTest` (1), `EventRepositoryTest` (4, filter specs via Testcontainers). Wired into `docker/docker-compose.yml` (port 8081) and `demo.sh` (venue/event creation steps, independent of the booking-service flow).
 
-Deferred to later slices: seat map generation (`GET /events/{eventId}/seats`), update/cancel event, venue lookup by ID (`GET /venues/{venueId}`), listing venues, and hooking booking-service up to real event data instead of client-supplied values.
+Deferred to later slices: seat map generation (`GET /events/{eventId}/seats`), update/cancel event, venue lookup by ID (`GET /venues/{venueId}`), listing venues, and full seat-level binding for booking-service (blocked on seat map generation existing).
 
-**Next up:** decide next event-service slice, or move to another service (payment-service, notification-service, waitlist-service, api-gateway).
+**Next up:** start a new service (payment-service, notification-service, waitlist-service, api-gateway) or continue deepening event-service (seat map generation, etc.).
 
 ### Remaining services (not yet scoped into slices)
 payment-service, notification-service, waitlist-service, api-gateway

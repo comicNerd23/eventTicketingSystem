@@ -45,7 +45,6 @@ class BookingControllerTest {
         HoldSeatRequest req = new HoldSeatRequest();
         req.setEventId(UUID.randomUUID());
         req.setSeatId(UUID.randomUUID());
-        req.setEventTitle("Test Event");
         req.setSeatLabel("A1");
 
         mvc.perform(post("/bookings/hold")

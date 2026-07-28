@@ -39,6 +39,10 @@ spring:
       auto-offset-reset: earliest
       enable-auto-commit: true
 
+event:
+  service:
+    base-url: http://localhost:8081
+
 logging:
   level:
     com.ticketing: DEBUG

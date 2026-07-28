@@ -1,6 +1,8 @@
 package com.ticketing.booking.integration;
 
 import tools.jackson.databind.ObjectMapper;
+import com.ticketing.booking.client.EventInfo;
+import com.ticketing.booking.client.EventServiceClient;
 import com.ticketing.booking.domain.Booking;
 import com.ticketing.booking.domain.BookingStatus;
 import com.ticketing.booking.dto.BookingResponse;
@@ -12,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
@@ -41,6 +44,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -77,6 +81,9 @@ class BookingSagaIntegrationTest {
     // SpyBean lets the real implementation run while still allowing Mockito verification
     @MockitoSpyBean BookingEventPublisher eventPublisher;
 
+    // No real event-service runs in this test — stub the event lookup instead
+    @MockitoBean EventServiceClient eventServiceClient;
+
     private static final String USER_ID = "00000000-0000-0000-0000-000000000099";
     private UUID eventId;
     private UUID seatId;
@@ -86,6 +93,8 @@ class BookingSagaIntegrationTest {
         eventId = UUID.randomUUID();
         seatId  = UUID.randomUUID();
         bookingRepository.deleteAll();
+        given(eventServiceClient.getEvent(any()))
+            .willAnswer(inv -> new EventInfo(inv.getArgument(0), "Coldplay: Music of the Spheres Tour"));
     }
 
     // ── Happy path ────────────────────────────────────────────────────────────
@@ -193,7 +202,6 @@ class BookingSagaIntegrationTest {
         HoldSeatRequest req = new HoldSeatRequest();
         req.setEventId(eventId);
         req.setSeatId(seatId);
-        req.setEventTitle("Coldplay: Music of the Spheres Tour");
         req.setSeatLabel("B7");
         req.setPriceGbp(89.5);
         return restTemplate.postForEntity("/bookings/hold", jsonEntity(req), responseType);

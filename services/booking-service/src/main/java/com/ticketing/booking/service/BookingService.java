@@ -1,5 +1,7 @@
 package com.ticketing.booking.service;
 
+import com.ticketing.booking.client.EventInfo;
+import com.ticketing.booking.client.EventServiceClient;
 import com.ticketing.booking.domain.Booking;
 import com.ticketing.booking.domain.BookingStatus;
 import com.ticketing.booking.dto.BookingResponse;
@@ -29,13 +31,16 @@ public class BookingService {
     private final BookingRepository bookingRepository;
     private final SeatHoldService seatHoldService;
     private final BookingEventPublisher eventPublisher;
+    private final EventServiceClient eventServiceClient;
 
     public BookingService(BookingRepository bookingRepository,
                           SeatHoldService seatHoldService,
-                          BookingEventPublisher eventPublisher) {
+                          BookingEventPublisher eventPublisher,
+                          EventServiceClient eventServiceClient) {
         this.bookingRepository = bookingRepository;
         this.seatHoldService = seatHoldService;
         this.eventPublisher = eventPublisher;
+        this.eventServiceClient = eventServiceClient;
     }
 
     @Transactional
@@ -46,14 +51,17 @@ public class BookingService {
             throw new SeatAlreadyHeldException(request.getSeatId());
         }
 
+        // Validates the event is real and fetches its title from event-service
+        EventInfo event = eventServiceClient.getEvent(request.getEventId());
+
         boolean acquired = seatHoldService.acquireHold(request.getSeatId());
         if (!acquired) {
             throw new SeatAlreadyHeldException(request.getSeatId());
         }
 
         Booking booking = new Booking();
-        booking.setEventId(request.getEventId());
-        booking.setEventTitle(request.getEventTitle() != null ? request.getEventTitle() : "Demo Event");
+        booking.setEventId(event.id());
+        booking.setEventTitle(event.title());
         booking.setSeatId(request.getSeatId());
         booking.setSeatLabel(request.getSeatLabel() != null ? request.getSeatLabel() : "A1");
         booking.setUserId(userId);

@@ -11,8 +11,7 @@ public class HoldSeatRequest {
     @NotNull
     private UUID seatId;
 
-    // Optional enrichment fields — avoids needing event-service for the demo slice
-    private String eventTitle;
+    // Seat-level fields stay client-supplied until event-service models individual seats
     private String seatLabel;
     private Double priceGbp;
 
@@ -20,8 +19,6 @@ public class HoldSeatRequest {
     public void setEventId(UUID eventId) { this.eventId = eventId; }
     public UUID getSeatId() { return seatId; }
     public void setSeatId(UUID seatId) { this.seatId = seatId; }
-    public String getEventTitle() { return eventTitle; }
-    public void setEventTitle(String eventTitle) { this.eventTitle = eventTitle; }
     public String getSeatLabel() { return seatLabel; }
     public void setSeatLabel(String seatLabel) { this.seatLabel = seatLabel; }
     public Double getPriceGbp() { return priceGbp; }

@@ -1,5 +1,7 @@
 package com.ticketing.booking.service;
 
+import com.ticketing.booking.client.EventInfo;
+import com.ticketing.booking.client.EventServiceClient;
 import com.ticketing.booking.domain.Booking;
 import com.ticketing.booking.domain.BookingStatus;
 import com.ticketing.booking.dto.BookingResponse;
@@ -7,6 +9,7 @@ import com.ticketing.booking.dto.ConfirmBookingRequest;
 import com.ticketing.booking.dto.HoldSeatRequest;
 import com.ticketing.booking.exception.BookingNotFoundException;
 import com.ticketing.booking.exception.BookingNotHeldException;
+import com.ticketing.booking.exception.EventNotFoundException;
 import com.ticketing.booking.exception.SeatAlreadyHeldException;
 import com.ticketing.booking.kafka.producer.BookingEventPublisher;
 import com.ticketing.booking.repository.BookingRepository;
@@ -33,6 +36,7 @@ class BookingServiceTest {
     @Mock BookingRepository bookingRepository;
     @Mock SeatHoldService seatHoldService;
     @Mock BookingEventPublisher eventPublisher;
+    @Mock EventServiceClient eventServiceClient;
 
     @InjectMocks BookingService bookingService;
 
@@ -52,6 +56,7 @@ class BookingServiceTest {
     @Test
     void holdSeat_whenSeatFreeAndRedisAcquired_returnsHeldBooking() {
         given(bookingRepository.existsBySeatIdAndStatusIn(eq(seatId), anyList())).willReturn(false);
+        given(eventServiceClient.getEvent(eventId)).willReturn(new EventInfo(eventId, "Test Event"));
         given(seatHoldService.acquireHold(seatId)).willReturn(true);
         given(bookingRepository.save(any())).willAnswer(inv -> {
             Booking b = inv.getArgument(0);
@@ -96,6 +101,7 @@ class BookingServiceTest {
     @Test
     void holdSeat_whenDbSaveFails_releasesRedisLockToPreventLeak() {
         given(bookingRepository.existsBySeatIdAndStatusIn(eq(seatId), anyList())).willReturn(false);
+        given(eventServiceClient.getEvent(eventId)).willReturn(new EventInfo(eventId, "Test Event"));
         given(seatHoldService.acquireHold(seatId)).willReturn(true);
         given(bookingRepository.save(any())).willThrow(new RuntimeException("DB connection lost"));
 
@@ -107,21 +113,35 @@ class BookingServiceTest {
     }
 
     @Test
-    void holdSeat_whenNoEventTitleProvided_usesDefault() {
+    void holdSeat_usesEventTitleFromEventService_andDefaultsSeatLabelAndPrice() {
         given(bookingRepository.existsBySeatIdAndStatusIn(eq(seatId), anyList())).willReturn(false);
+        given(eventServiceClient.getEvent(eventId)).willReturn(new EventInfo(eventId, "Real Event Title"));
         given(seatHoldService.acquireHold(seatId)).willReturn(true);
         given(bookingRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
 
         HoldSeatRequest req = new HoldSeatRequest();
         req.setEventId(eventId);
         req.setSeatId(seatId);
-        // eventTitle and seatLabel deliberately omitted
+        // seatLabel and priceGbp deliberately omitted
 
         BookingResponse response = bookingService.holdSeat(userId, req);
 
-        assertThat(response.getEventTitle()).isEqualTo("Demo Event");
+        assertThat(response.getEventTitle()).isEqualTo("Real Event Title");
         assertThat(response.getSeatLabel()).isEqualTo("A1");
         assertThat(response.getTotalAmountGbp()).isEqualTo(75.0);
+    }
+
+    @Test
+    void holdSeat_whenEventNotFound_throwsEventNotFoundException() {
+        given(bookingRepository.existsBySeatIdAndStatusIn(eq(seatId), anyList())).willReturn(false);
+        given(eventServiceClient.getEvent(eventId)).willThrow(new EventNotFoundException(eventId));
+
+        assertThatThrownBy(() -> bookingService.holdSeat(userId, holdRequest()))
+            .isInstanceOf(EventNotFoundException.class)
+            .hasMessageContaining(eventId.toString());
+
+        then(seatHoldService).shouldHaveNoInteractions();
+        then(bookingRepository).should(never()).save(any());
     }
 
     // ── confirmBooking ────────────────────────────────────────────────────────
@@ -282,7 +302,6 @@ class BookingServiceTest {
         HoldSeatRequest req = new HoldSeatRequest();
         req.setEventId(eventId);
         req.setSeatId(seatId);
-        req.setEventTitle("Test Event");
         req.setSeatLabel("B7");
         req.setPriceGbp(89.5);
         return req;
