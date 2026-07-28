@@ -2,7 +2,7 @@
 
 Portfolio project (concerts/sports/shows) built with Spec-Driven Development to demonstrate Kafka/event-driven architecture, microservices, and full-stack (Spring Boot + Angular) skills.
 
-**Stack:** Spring Boot 4.1.0 · Java 25 · Spring Cloud Gateway · Apache Kafka · PostgreSQL (per service) · Redis · Angular 17+ · Docker/K8s · GCP Cloud Run · Stripe sandbox · Testcontainers 1.21.3
+**Stack:** Spring Boot 4.1.0 · Java 25 · Spring Cloud Gateway · Apache Kafka · PostgreSQL (per service) · Redis · Angular 17+ · Docker/K8s · GCP Cloud Run · Stripe sandbox · Testcontainers 1.21.4
 
 ---
 
@@ -40,17 +40,18 @@ Happy-path slice: hold seat → confirm booking → saga via Kafka. 35 tests pas
 
 Note: booking-service currently accepts event/seat data directly in the request body (client-supplied `eventId`, `eventTitle`, `seatId`, `seatLabel`, `priceGbp`) — it does not yet call a real event-service. Wiring booking-service to real event data is a future slice, after event-service exists.
 
-### event-service — next up
+### event-service — Slice 1 done
 
-**Slice 1 (proposed):**
-- `POST /venues` — create a venue with sections
-- `POST /events` — create an event tied to a venue
+- `POST /venues` — create a venue with sections (capacity computed from rows × seatsPerRow)
+- `POST /events` — create an event tied to a venue (denormalizes venueName/city onto Event, status defaults to PUBLISHED)
 - `GET /events/{id}` — fetch an event
-- `GET /events` — list events
+- `GET /events` — list events, filterable by city/category/dateFrom/dateTo, paginated
 
-Backed by real Postgres persistence, controller/service tests (same pattern as `BookingControllerTest`), and a `demo.sh` addition: create venue → create event → fetch it → see it in the list.
+Spring Boot 4.1.0 / Java 25, real Postgres persistence (own database `ticketing_events`, database-per-service). 13 tests passing: `VenueControllerTest` (2), `EventControllerTest` (6), `VenueRepositoryTest` (1), `EventRepositoryTest` (4, filter specs via Testcontainers). Wired into `docker/docker-compose.yml` (port 8081) and `demo.sh` (venue/event creation steps, independent of the booking-service flow).
 
-Deferred to later slices: seat map generation (`GET /events/{eventId}/seats`), update/cancel event, venue lookup by ID, and hooking booking-service up to real event data instead of client-supplied values.
+Deferred to later slices: seat map generation (`GET /events/{eventId}/seats`), update/cancel event, venue lookup by ID (`GET /venues/{venueId}`), listing venues, and hooking booking-service up to real event data instead of client-supplied values.
+
+**Next up:** decide next event-service slice, or move to another service (payment-service, notification-service, waitlist-service, api-gateway).
 
 ### Remaining services (not yet scoped into slices)
 payment-service, notification-service, waitlist-service, api-gateway

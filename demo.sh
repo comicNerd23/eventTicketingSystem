@@ -10,6 +10,7 @@
 set -e
 
 BASE="http://localhost:8082"
+EVENT_BASE="http://localhost:8081"
 USER_ID="00000000-0000-0000-0000-000000000099"
 EVENT_ID="$(powershell -Command '[System.Guid]::NewGuid().ToString()' | tr -d '\r')"
 SEAT_ID="$(powershell -Command '[System.Guid]::NewGuid().ToString()' | tr -d '\r')"
@@ -20,6 +21,79 @@ echo "  Event Ticketing — Happy Path Demo"
 echo "========================================="
 echo "Event ID : $EVENT_ID"
 echo "Seat ID  : $SEAT_ID"
+echo ""
+
+# ── Step 0a: event-service — create a venue ─────────────────────────────────
+echo ">>> 0a. POST /venues (event-service)"
+VENUE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$EVENT_BASE/venues" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "The O2 Arena",
+    "address": "Peninsula Square",
+    "city": "London",
+    "country": "UK",
+    "sections": [
+      {"name": "Floor", "rows": 10, "seatsPerRow": 20},
+      {"name": "Upper Tier", "rows": 15, "seatsPerRow": 30}
+    ]
+  }')
+
+HTTP_CODE=$(echo "$VENUE_RESPONSE" | tail -1)
+VENUE_BODY=$(echo "$VENUE_RESPONSE" | head -1)
+echo "HTTP $HTTP_CODE"
+echo "$VENUE_BODY"
+
+if [ "$HTTP_CODE" != "201" ]; then
+  echo "ERROR: Expected 201, got $HTTP_CODE"
+  exit 1
+fi
+
+VENUE_ID=$(echo "$VENUE_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+echo ""
+echo "    Venue ID : $VENUE_ID  (capacity: 650)"
+echo ""
+
+# ── Step 0b: event-service — create an event tied to the venue ──────────────
+echo ">>> 0b. POST /events (event-service)"
+EVENT_CREATE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$EVENT_BASE/events" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"title\": \"Coldplay: Music of the Spheres Tour\",
+    \"description\": \"Live at The O2\",
+    \"category\": \"CONCERT\",
+    \"venueId\": \"$VENUE_ID\",
+    \"startsAt\": \"2026-09-15T19:30:00Z\",
+    \"endsAt\": \"2026-09-15T22:30:00Z\"
+  }")
+
+HTTP_CODE=$(echo "$EVENT_CREATE_RESPONSE" | tail -1)
+EVENT_CREATE_BODY=$(echo "$EVENT_CREATE_RESPONSE" | head -1)
+echo "HTTP $HTTP_CODE"
+echo "$EVENT_CREATE_BODY"
+
+if [ "$HTTP_CODE" != "201" ]; then
+  echo "ERROR: Expected 201, got $HTTP_CODE"
+  exit 1
+fi
+
+CREATED_EVENT_ID=$(echo "$EVENT_CREATE_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+echo ""
+echo "    Event ID : $CREATED_EVENT_ID"
+echo ""
+
+# ── Step 0c: event-service — fetch it and see it in the list ────────────────
+echo ">>> 0c. GET /events/$CREATED_EVENT_ID (event-service)"
+curl -s "$EVENT_BASE/events/$CREATED_EVENT_ID"
+echo ""
+echo ""
+
+echo ">>> 0d. GET /events?city=London (event-service)"
+curl -s "$EVENT_BASE/events?city=London"
+echo ""
+echo ""
+echo "    NOTE: booking-service below still uses client-supplied event/seat data"
+echo "    (its own EVENT_ID/SEAT_ID, not the event-service IDs above) — wiring"
+echo "    booking-service to real event-service data is a later slice."
 echo ""
 
 # ── Step 1: Hold the seat ────────────────────────────────────────────────────
