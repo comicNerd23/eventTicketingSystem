@@ -59,14 +59,27 @@ Spring Boot 4.1.0 / Java 25, real Postgres persistence (own database `ticketing_
 
 Deferred to later slices: seat map generation (`GET /events/{eventId}/seats`), update/cancel event, venue lookup by ID (`GET /venues/{venueId}`), listing venues, and full seat-level binding for booking-service (blocked on seat map generation existing).
 
-**Next up:** start a new service (payment-service, notification-service, waitlist-service, api-gateway) or continue deepening event-service (seat map generation, etc.).
+### payment-service — Slice 1 done
+
+- Kafka consumer on `payment-initiated` (own consumer group, `payment-service-consumer-group` — see note below) creates a `PENDING` `Payment` via a stubbed `PaymentGateway` (`StubPaymentGateway`, synchronously returns a fake `pi_stub_...` id — real Stripe SDK deferred; swappable later purely via `payment.gateway.provider` config, no caller changes).
+- `GET /payments/{paymentId}`, `GET /payments/bookings/{bookingId}`
+- `POST /payments/webhook` — simplified trigger payload (`type`, `paymentIntentId`, optional `failureMessage`) standing in for a real Stripe event; `Stripe-Signature` header presence is enforced, cryptographic verification deferred. Transitions `PENDING` → `SUCCEEDED`/`FAILED`, publishes `payment-completed`/`payment-failed` accordingly.
+
+Spring Boot 4.1.0 / Java 25, real Postgres persistence (own database `ticketing_payments`). 27 tests passing: `PaymentRepositoryTest` (6), `PaymentServiceTest` (11), `PaymentControllerTest` (8), `PaymentSagaIntegrationTest` (2, Kafka+Postgres via Testcontainers, mirrors `BookingSagaIntegrationTest`'s spy-and-await pattern). Wired into `docker/docker-compose.yml` (port 8083) and `demo.sh` (steps 5-7, independent of and appended after the existing booking-service saga flow).
+
+**Not wired into the live saga yet**: `payment-simulator` still plays that role (unchanged, per explicit decision). Both now consume `payment-initiated` under distinct consumer groups — `payment-simulator` kept its existing groupId (`payment-service-group`, the literal the AsyncAPI spec documents for the real service), and `payment-service` was given `payment-service-consumer-group` instead, since giving both the same literal string would have made Kafka split partitions between them rather than deliver to both (a real collision, not just a naming nit). This means `specs/asyncapi/kafka-events.yaml`'s documented groupId for `payment-service` is temporarily held by `payment-simulator` — a known, deliberate inaccuracy while both coexist; reconcile once `payment-simulator` is retired.
+
+Deferred to later slices: wiring payment-service into the real booking saga (replacing payment-simulator — must also stop payment-simulator at that point, or booking-service will receive `payment-completed`/`payment-failed` from both), real Stripe SDK integration behind `PaymentGateway` (webhook signature verification, real `PaymentIntent` creation), `charge.refunded`/`REFUNDED` status and the `booking-cancelled` consumer.
+
+Also fixed while verifying end-to-end: a pre-existing Kafka partition-count race in `docker/docker-compose.yml`, unrelated to payment-service itself but only surfaced by adding a second independent consumer. `booking-service`'s `KafkaConfig` declares `NewTopic` beans requesting 3 partitions, but on a fresh broker a consumer (`payment-simulator` or `payment-service`) can auto-create the topic first via `KAFKA_AUTO_CREATE_TOPICS_ENABLE`, getting the broker's default of 1 partition; `KafkaAdmin` then only *increases* it to 3 once `booking-service` starts, and already-subscribed consumers stay pinned to partition 0 until their next metadata refresh (default 5 minutes) — so a booking whose key hashes to partition 1 or 2 would never be seen by a consumer stuck on partition 0. Fixed by setting `KAFKA_NUM_PARTITIONS: 3` as the broker's default, so whoever auto-creates the topic first gets the right partition count immediately — no race window at all.
+
+**Next up:** retire `payment-simulator` and wire payment-service into the live saga, or start another new service (notification-service, waitlist-service, api-gateway), or deepen event-service (seat map generation).
 
 ### Remaining services (not yet scoped into slices)
-payment-service, notification-service, waitlist-service, api-gateway
+notification-service, waitlist-service, api-gateway
 
 ---
 
 ## Outstanding housekeeping
 
-- No git remote configured yet — local commits (through `2657353`, Spring Boot 4 migration) need a remote once ready to push.
 - Testcontainers Cloud free plan is capped at 50 min/month — reserve integration test runs for genuine breakage or final pre-commit verification, not speculative re-runs.

@@ -188,3 +188,57 @@ else
   echo "  Try: curl -s $BASE/bookings/$BOOKING_ID -H 'X-User-Id: $USER_ID'"
 fi
 echo ""
+
+# ── Step 5: payment-service — independently consumed the same payment-initiated event ──
+PAYMENT_BASE="http://localhost:8083"
+echo ">>> 5. GET /payments/bookings/$BOOKING_ID (payment-service)"
+echo "    payment-service has its own Kafka consumer group, distinct from payment-simulator's,"
+echo "    so it independently received the same payment-initiated event published in Step 2."
+for i in 1 2 3 4 5; do
+  PAYMENT_RESPONSE=$(curl -s -w "\n%{http_code}" "$PAYMENT_BASE/payments/bookings/$BOOKING_ID")
+  HTTP_CODE=$(echo "$PAYMENT_RESPONSE" | tail -1)
+  if [ "$HTTP_CODE" = "200" ]; then break; fi
+  sleep 1
+done
+PAYMENT_BODY=$(echo "$PAYMENT_RESPONSE" | head -1)
+echo "HTTP $HTTP_CODE"
+echo "$PAYMENT_BODY"
+
+if [ "$HTTP_CODE" != "200" ]; then
+  echo "ERROR: Expected 200, got $HTTP_CODE"
+  exit 1
+fi
+
+PAYMENT_ID=$(echo "$PAYMENT_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+PAYMENT_INTENT_ID=$(echo "$PAYMENT_BODY" | grep -o '"stripePaymentIntentId":"[^"]*"' | cut -d'"' -f4)
+echo ""
+echo "    Payment ID : $PAYMENT_ID  (status: PENDING, stripePaymentIntentId: $PAYMENT_INTENT_ID)"
+echo ""
+
+# ── Step 6: simulate Stripe's async webhook confirming the charge ──────────
+echo ">>> 6. POST /payments/webhook (payment-service) — simulated Stripe confirmation"
+WEBHOOK_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$PAYMENT_BASE/payments/webhook" \
+  -H "Content-Type: application/json" \
+  -H "Stripe-Signature: t=demo,v1=stub_signature" \
+  -d "{\"type\":\"payment_intent.succeeded\",\"paymentIntentId\":\"$PAYMENT_INTENT_ID\"}")
+
+HTTP_CODE=$(echo "$WEBHOOK_RESPONSE" | tail -1)
+echo "HTTP $HTTP_CODE"
+
+if [ "$HTTP_CODE" != "200" ]; then
+  echo "ERROR: Expected 200, got $HTTP_CODE"
+  exit 1
+fi
+echo ""
+
+# ── Step 7: confirm the payment-service side is now SUCCEEDED ───────────────
+echo ">>> 7. GET /payments/$PAYMENT_ID (payment-service, should be SUCCEEDED)"
+curl -s "$PAYMENT_BASE/payments/$PAYMENT_ID"
+echo ""
+echo ""
+echo "    NOTE: payment-service published its own payment-completed for this booking."
+echo "    booking-service already CONFIRMED this booking earlier (Step 4) via payment-simulator's"
+echo "    payment-completed — its handlePaymentCompleted() no-ops on this second, later event"
+echo "    (booking already CONFIRMED). This is expected while both consumers coexist — see"
+echo "    docs/plan.md for the follow-up once payment-service replaces payment-simulator."
+echo ""

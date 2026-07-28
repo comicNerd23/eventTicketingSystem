@@ -82,6 +82,20 @@ services:
       SPRING_DATASOURCE_PASSWORD: ticketing
     restart: on-failure
 
+  payment-service:
+    build:
+      context: ../services/payment-service
+      dockerfile: Dockerfile
+    depends_on: [kafka, postgres]
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ticketing_payments
+      SPRING_DATASOURCE_USERNAME: ticketing
+      SPRING_DATASOURCE_PASSWORD: ticketing
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    restart: on-failure
+
   payment-simulator:
     build:
       context: ../services/payment-simulator
