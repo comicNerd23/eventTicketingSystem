@@ -7,6 +7,7 @@ import com.ticketing.booking.domain.BookingStatus;
 import com.ticketing.booking.dto.BookingResponse;
 import com.ticketing.booking.dto.ConfirmBookingRequest;
 import com.ticketing.booking.dto.HoldSeatRequest;
+import com.ticketing.booking.exception.BookingNotCancellableException;
 import com.ticketing.booking.exception.BookingNotFoundException;
 import com.ticketing.booking.exception.BookingNotHeldException;
 import com.ticketing.booking.exception.EventNotFoundException;
@@ -269,6 +270,70 @@ class BookingServiceTest {
         assertThat(saved.getValue().getCancelledAt()).isNotNull();
 
         then(seatHoldService).should().releaseHold(seatId);
+        then(eventPublisher).should().publishSeatReleased(booking);
+    }
+
+    // ── cancelBooking ─────────────────────────────────────────────────────────
+
+    @Test
+    void cancelBooking_whenHeld_releasesRedisAndCancelsWithoutPublishing() {
+        UUID bookingId = UUID.randomUUID();
+        Booking booking = aBooking(bookingId, seatId, BookingStatus.HELD);
+        given(bookingRepository.findById(bookingId)).willReturn(Optional.of(booking));
+        given(bookingRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+
+        BookingResponse response = bookingService.cancelBooking(bookingId, userId);
+
+        assertThat(response.getStatus()).isEqualTo(BookingStatus.CANCELLED);
+        then(seatHoldService).should().releaseHold(seatId);
+        then(eventPublisher).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void cancelBooking_whenConfirmed_cancelsAndPublishesBookingCancelled() {
+        UUID bookingId = UUID.randomUUID();
+        Booking booking = aBooking(bookingId, seatId, BookingStatus.CONFIRMED);
+        given(bookingRepository.findById(bookingId)).willReturn(Optional.of(booking));
+        given(bookingRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+
+        BookingResponse response = bookingService.cancelBooking(bookingId, userId);
+
+        assertThat(response.getStatus()).isEqualTo(BookingStatus.CANCELLED);
+        then(seatHoldService).shouldHaveNoInteractions();
+        then(eventPublisher).should().publishBookingCancelled(booking);
+    }
+
+    @Test
+    void cancelBooking_whenPaymentPending_throwsBookingNotCancellable() {
+        UUID bookingId = UUID.randomUUID();
+        given(bookingRepository.findById(bookingId))
+            .willReturn(Optional.of(aBooking(bookingId, seatId, BookingStatus.PAYMENT_PENDING)));
+
+        assertThatThrownBy(() -> bookingService.cancelBooking(bookingId, userId))
+            .isInstanceOf(BookingNotCancellableException.class)
+            .hasMessageContaining("PAYMENT_PENDING");
+
+        then(bookingRepository).should(never()).save(any());
+        then(eventPublisher).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void cancelBooking_whenAlreadyCancelled_throwsBookingNotCancellable() {
+        UUID bookingId = UUID.randomUUID();
+        given(bookingRepository.findById(bookingId))
+            .willReturn(Optional.of(aBooking(bookingId, seatId, BookingStatus.CANCELLED)));
+
+        assertThatThrownBy(() -> bookingService.cancelBooking(bookingId, userId))
+            .isInstanceOf(BookingNotCancellableException.class);
+    }
+
+    @Test
+    void cancelBooking_whenNotFound_throwsBookingNotFound() {
+        UUID bookingId = UUID.randomUUID();
+        given(bookingRepository.findById(bookingId)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> bookingService.cancelBooking(bookingId, userId))
+            .isInstanceOf(BookingNotFoundException.class);
     }
 
     // ── expireHold ────────────────────────────────────────────────────────────

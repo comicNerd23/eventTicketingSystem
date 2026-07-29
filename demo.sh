@@ -272,3 +272,30 @@ else
   echo "  WARN: Expected type=TICKET_ISSUED status=SENT, got type=$NOTIFICATION_TYPE status=$NOTIFICATION_STATUS"
 fi
 echo ""
+
+# ── Step 9: cancel the CONFIRMED booking — publishes booking-cancelled ───────
+echo ">>> 9. POST /bookings/$BOOKING_ID/cancel (booking-service)"
+echo "    Booking is CONFIRMED (from Step 4) — cancelling it publishes booking-cancelled,"
+echo "    consumed by payment-service (refund), notification-service, and waitlist-service."
+CANCEL_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BASE/bookings/$BOOKING_ID/cancel" \
+  -H "X-User-Id: $USER_ID")
+
+HTTP_CODE=$(echo "$CANCEL_RESPONSE" | tail -1)
+CANCEL_BODY=$(echo "$CANCEL_RESPONSE" | head -1)
+
+echo "HTTP $HTTP_CODE"
+echo "$CANCEL_BODY"
+
+if [ "$HTTP_CODE" != "200" ]; then
+  echo "ERROR: Expected 200, got $HTTP_CODE"
+  exit 1
+fi
+
+CANCEL_STATUS=$(echo "$CANCEL_BODY" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+echo ""
+if [ "$CANCEL_STATUS" = "CANCELLED" ]; then
+  echo "  SUCCESS — booking cancelled, booking-cancelled published to Kafka."
+else
+  echo "  WARN: Expected status=CANCELLED, got status=$CANCEL_STATUS"
+fi
+echo ""

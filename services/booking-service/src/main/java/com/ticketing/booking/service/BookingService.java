@@ -7,6 +7,7 @@ import com.ticketing.booking.domain.BookingStatus;
 import com.ticketing.booking.dto.BookingResponse;
 import com.ticketing.booking.dto.ConfirmBookingRequest;
 import com.ticketing.booking.dto.HoldSeatRequest;
+import com.ticketing.booking.exception.BookingNotCancellableException;
 import com.ticketing.booking.exception.BookingNotFoundException;
 import com.ticketing.booking.exception.BookingNotHeldException;
 import com.ticketing.booking.exception.SeatAlreadyHeldException;
@@ -142,7 +143,34 @@ public class BookingService {
         bookingRepository.save(booking);
 
         seatHoldService.releaseHold(booking.getSeatId());
+        eventPublisher.publishSeatReleased(booking);
         log.info("Booking cancelled after payment failure: booking={} reason={}", bookingId, failureReason);
+    }
+
+    @Transactional
+    public BookingResponse cancelBooking(UUID bookingId, UUID userId) {
+        Booking booking = bookingRepository.findById(bookingId)
+            .orElseThrow(() -> new BookingNotFoundException(bookingId));
+
+        switch (booking.getStatus()) {
+            case HELD -> {
+                seatHoldService.releaseHold(booking.getSeatId());
+                booking.setStatus(BookingStatus.CANCELLED);
+                booking.setCancelledAt(Instant.now());
+                booking = bookingRepository.save(booking);
+                log.info("HELD booking cancelled: booking={}", bookingId);
+            }
+            case CONFIRMED -> {
+                booking.setStatus(BookingStatus.CANCELLED);
+                booking.setCancelledAt(Instant.now());
+                booking = bookingRepository.save(booking);
+                eventPublisher.publishBookingCancelled(booking);
+                log.info("CONFIRMED booking cancelled: booking={}", bookingId);
+            }
+            default -> throw new BookingNotCancellableException(bookingId, booking.getStatus());
+        }
+
+        return BookingResponse.from(booking);
     }
 
     @Transactional

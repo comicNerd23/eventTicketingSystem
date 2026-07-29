@@ -6,6 +6,7 @@ import com.ticketing.booking.domain.BookingStatus;
 import com.ticketing.booking.dto.BookingResponse;
 import com.ticketing.booking.dto.ConfirmBookingRequest;
 import com.ticketing.booking.dto.HoldSeatRequest;
+import com.ticketing.booking.exception.BookingNotCancellableException;
 import com.ticketing.booking.exception.BookingNotFoundException;
 import com.ticketing.booking.exception.BookingNotHeldException;
 import com.ticketing.booking.exception.SeatAlreadyHeldException;
@@ -153,6 +154,43 @@ class BookingControllerTest {
                 .content("{}"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("Bad Request"));
+    }
+
+    // ── POST /bookings/{id}/cancel ────────────────────────────────────────────
+
+    @Test
+    void cancelBooking_whenHeld_returns200WithCancelledStatus() throws Exception {
+        UUID bookingId = UUID.randomUUID();
+        given(bookingService.cancelBooking(eq(bookingId), any()))
+            .willReturn(BookingResponse.from(aBooking(bookingId, BookingStatus.CANCELLED)));
+
+        mvc.perform(post("/bookings/{id}/cancel", bookingId)
+                .header("X-User-Id", USER_ID))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("CANCELLED"));
+    }
+
+    @Test
+    void cancelBooking_whenNotFound_returns404() throws Exception {
+        UUID bookingId = UUID.randomUUID();
+        given(bookingService.cancelBooking(eq(bookingId), any()))
+            .willThrow(new BookingNotFoundException(bookingId));
+
+        mvc.perform(post("/bookings/{id}/cancel", bookingId)
+                .header("X-User-Id", USER_ID))
+            .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void cancelBooking_whenNotCancellable_returns409() throws Exception {
+        UUID bookingId = UUID.randomUUID();
+        given(bookingService.cancelBooking(eq(bookingId), any()))
+            .willThrow(new BookingNotCancellableException(bookingId, BookingStatus.PAYMENT_PENDING));
+
+        mvc.perform(post("/bookings/{id}/cancel", bookingId)
+                .header("X-User-Id", USER_ID))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.message").value(containsString("PAYMENT_PENDING")));
     }
 
     // ── GET /bookings/{id} ────────────────────────────────────────────────────

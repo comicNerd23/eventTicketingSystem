@@ -192,6 +192,48 @@ class BookingSagaIntegrationTest {
         assertThat(secondConfirm.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
 
+    // ── Payment failure ───────────────────────────────────────────────────────
+
+    @Test
+    void paymentFailed_releasesSeatAndPublishesSeatReleased() throws Exception {
+        UUID bookingId = holdSeat(eventId, seatId).getBody().getId();
+        confirmBooking(bookingId);
+
+        kafkaTemplate.send("payment-failed", bookingId.toString(),
+            buildPaymentFailedEvent(bookingId));
+
+        await().atMost(10, SECONDS).untilAsserted(() ->
+            assertThat(bookingRepository.findById(bookingId).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CANCELLED));
+
+        then(eventPublisher).should().publishSeatReleased(any());
+    }
+
+    // ── Cancellation ──────────────────────────────────────────────────────────
+
+    @Test
+    void cancelConfirmedBooking_publishesBookingCancelled() throws Exception {
+        UUID bookingId = holdSeat(eventId, seatId).getBody().getId();
+        confirmBooking(bookingId);
+        kafkaTemplate.send("payment-completed", bookingId.toString(),
+            buildPaymentCompletedEvent(bookingId));
+
+        await().atMost(10, SECONDS).untilAsserted(() ->
+            assertThat(bookingRepository.findById(bookingId).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CONFIRMED));
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-User-Id", USER_ID);
+        ResponseEntity<BookingResponse> cancelResp = restTemplate.exchange(
+            "/bookings/{id}/cancel", org.springframework.http.HttpMethod.POST,
+            new HttpEntity<>(headers), BookingResponse.class, bookingId);
+
+        assertThat(cancelResp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(cancelResp.getBody().getStatus()).isEqualTo(BookingStatus.CANCELLED);
+
+        then(eventPublisher).should().publishBookingCancelled(any());
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private ResponseEntity<BookingResponse> holdSeat(UUID eventId, UUID seatId) {
@@ -231,6 +273,21 @@ class BookingSagaIntegrationTest {
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("eventId", UUID.randomUUID().toString());
         envelope.put("eventType", "payment-completed");
+        envelope.put("occurredAt", Instant.now().toString());
+        envelope.put("payload", payload);
+
+        return objectMapper.writeValueAsString(envelope);
+    }
+
+    private String buildPaymentFailedEvent(UUID bookingId) throws Exception {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("bookingId", bookingId.toString());
+        payload.put("paymentId", UUID.randomUUID().toString());
+        payload.put("failureReason", "card_declined");
+
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("eventId", UUID.randomUUID().toString());
+        envelope.put("eventType", "payment-failed");
         envelope.put("occurredAt", Instant.now().toString());
         envelope.put("payload", payload);
 

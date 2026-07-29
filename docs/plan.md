@@ -92,7 +92,15 @@ ADR-003's keyspace-notification design, previously fully unbuilt, is now real: R
 
 Not demoed live in `demo.sh` — a 10-minute (or even short-override) real-time wait isn't practical inside the existing flow; the Testcontainers integration test is the real proof.
 
-**Next up:** Slice 3 (seat-released fix + booking cancel endpoint → booking-cancelled), then Slice 4 (waitlist-service, built from its existing spec), then Slice 5 (notification-service's remaining 3 consumers) — all part of the same multi-slice arc to give notification-service's new consumers real triggers instead of manually-published test events.
+### booking-service — seat-released fix + cancel endpoint done
+
+`handlePaymentFailed` now publishes `seat-released` (topic was provisioned since the original slice but never actually published to — a real gap, now closed). New `POST /bookings/{bookingId}/cancel` (per the already-speced `specs/openapi/booking-service.yaml:114`): cancels a HELD booking locally (Redis release, no Kafka event — nobody else has a stake in an unconfirmed hold) or a CONFIRMED booking (publishes `booking-cancelled`, previously spec'd but unimplemented); any other state returns 409 via the new `BookingNotCancellableException`, mirroring the existing `BookingNotHeldException` pattern.
+
+`booking-cancelled`'s payload omits `paymentId` — booking-service doesn't own payment data (database-per-service); a future refund consumer in payment-service should look itself up by `bookingId`.
+
+15 new/updated tests passing (`BookingServiceTest` +6 cancel/seat-released cases, `BookingControllerTest` +3 cancel cases, `BookingSagaIntegrationTest` +2 real end-to-end cases: cancel-a-confirmed-booking → `booking-cancelled` published, and payment-failed → `seat-released` published). Wired into `demo.sh` (Step 9: cancels the CONFIRMED demo booking — this becomes the trigger the next two slices verify against).
+
+**Next up:** Slice 4 (waitlist-service, built from its existing spec — consumes `seat-released`/`seat-hold-expired`/`booking-cancelled`, promotes the next waiting user), then Slice 5 (notification-service's remaining 3 consumers, now with real triggers instead of manually-published test events).
 
 ### Remaining services (not yet scoped into slices)
 waitlist-service (in progress, see above), api-gateway

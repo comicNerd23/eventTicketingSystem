@@ -41,4 +41,11 @@ public class BookingController {
             @Valid @RequestBody ConfirmBookingRequest request) {
         return ResponseEntity.ok(bookingService.confirmBooking(bookingId, userId, request));
     }
+
+    @PostMapping("/{bookingId}/cancel")
+    public ResponseEntity<BookingResponse> cancelBooking(
+            @RequestHeader(value = "X-User-Id", defaultValue = "00000000-0000-0000-0000-000000000099") UUID userId,
+            @PathVariable UUID bookingId) {
+        return ResponseEntity.ok(bookingService.cancelBooking(bookingId, userId));
+    }
 }

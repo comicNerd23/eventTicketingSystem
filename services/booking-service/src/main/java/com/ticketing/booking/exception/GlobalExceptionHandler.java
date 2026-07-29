@@ -30,6 +30,12 @@ public class GlobalExceptionHandler {
             .body(new ErrorResponse(409, "Conflict", e.getMessage(), req.getRequestURI()));
     }
 
+    @ExceptionHandler(BookingNotCancellableException.class)
+    public ResponseEntity<ErrorResponse> handleNotCancellable(BookingNotCancellableException e, HttpServletRequest req) {
+        return ResponseEntity.status(409)
+            .body(new ErrorResponse(409, "Conflict", e.getMessage(), req.getRequestURI()));
+    }
+
     @ExceptionHandler(EventNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleEventNotFound(EventNotFoundException e, HttpServletRequest req) {
         return ResponseEntity.status(404)
