@@ -11,6 +11,7 @@ public class NotificationResponse {
 
     private UUID id;
     private UUID bookingId;
+    private UUID waitlistEntryId;
     private UUID userId;
     private String userEmail;
     private NotificationType type;
@@ -23,6 +24,7 @@ public class NotificationResponse {
         NotificationResponse r = new NotificationResponse();
         r.id = n.getId();
         r.bookingId = n.getBookingId();
+        r.waitlistEntryId = n.getWaitlistEntryId();
         r.userId = n.getUserId();
         r.userEmail = n.getUserEmail();
         r.type = n.getType();
@@ -35,6 +37,7 @@ public class NotificationResponse {
 
     public UUID getId() { return id; }
     public UUID getBookingId() { return bookingId; }
+    public UUID getWaitlistEntryId() { return waitlistEntryId; }
     public UUID getUserId() { return userId; }
     public String getUserEmail() { return userEmail; }
     public NotificationType getType() { return type; }

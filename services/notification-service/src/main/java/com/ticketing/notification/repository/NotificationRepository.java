@@ -9,7 +9,11 @@ import java.util.UUID;
 
 public interface NotificationRepository extends JpaRepository<Notification, UUID> {
 
-    Optional<Notification> findByBookingId(UUID bookingId);
+    Optional<Notification> findFirstByBookingIdOrderByCreatedAtDesc(UUID bookingId);
+
+    Optional<Notification> findByWaitlistEntryId(UUID waitlistEntryId);
 
     boolean existsByBookingIdAndType(UUID bookingId, NotificationType type);
+
+    boolean existsByWaitlistEntryIdAndType(UUID waitlistEntryId, NotificationType type);
 }

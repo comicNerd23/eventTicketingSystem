@@ -346,3 +346,55 @@ else
   echo "  WARN: Expected status=PROMOTED, got status=$WAITLIST_STATUS"
 fi
 echo ""
+
+# ── Step 12: notification-service — recorded booking-cancelled from Step 10 ──
+echo ">>> 12. GET /notifications/bookings/$BOOKING_ID (notification-service, should now be BOOKING_CANCELLED)"
+echo "    notification-service independently consumed the booking-cancelled event from Step 10."
+echo "    This booking already has a TICKET_ISSUED notification from Step 8 — the endpoint"
+echo "    returns the most recent one, which is now the cancellation."
+for i in 1 2 3 4 5; do
+  BC_NOTIFICATION_RESPONSE=$(curl -s -w "\n%{http_code}" "$NOTIFICATION_BASE/notifications/bookings/$BOOKING_ID")
+  HTTP_CODE=$(echo "$BC_NOTIFICATION_RESPONSE" | tail -1)
+  BC_NOTIFICATION_BODY=$(echo "$BC_NOTIFICATION_RESPONSE" | head -1)
+  BC_NOTIFICATION_TYPE=$(echo "$BC_NOTIFICATION_BODY" | grep -o '"type":"[^"]*"' | cut -d'"' -f4)
+  if [ "$BC_NOTIFICATION_TYPE" = "BOOKING_CANCELLED" ]; then break; fi
+  sleep 1
+done
+echo "HTTP $HTTP_CODE"
+echo "$BC_NOTIFICATION_BODY"
+
+echo ""
+if [ "$BC_NOTIFICATION_TYPE" = "BOOKING_CANCELLED" ]; then
+  echo "  SUCCESS — notification-service recorded a BOOKING_CANCELLED notification."
+else
+  echo "  WARN: Expected type=BOOKING_CANCELLED, got type=$BC_NOTIFICATION_TYPE"
+fi
+echo ""
+
+# ── Step 13: notification-service — recorded waitlist-promoted from Step 11 ──
+echo ">>> 13. GET /notifications/waitlist-entries/$WAITLIST_ENTRY_ID (notification-service)"
+echo "    notification-service independently consumed the waitlist-promoted event from Step 11."
+for i in 1 2 3 4 5; do
+  WP_NOTIFICATION_RESPONSE=$(curl -s -w "\n%{http_code}" "$NOTIFICATION_BASE/notifications/waitlist-entries/$WAITLIST_ENTRY_ID")
+  HTTP_CODE=$(echo "$WP_NOTIFICATION_RESPONSE" | tail -1)
+  if [ "$HTTP_CODE" = "200" ]; then break; fi
+  sleep 1
+done
+WP_NOTIFICATION_BODY=$(echo "$WP_NOTIFICATION_RESPONSE" | head -1)
+echo "HTTP $HTTP_CODE"
+echo "$WP_NOTIFICATION_BODY"
+
+if [ "$HTTP_CODE" != "200" ]; then
+  echo "ERROR: Expected 200, got $HTTP_CODE"
+  exit 1
+fi
+
+WP_NOTIFICATION_TYPE=$(echo "$WP_NOTIFICATION_BODY" | grep -o '"type":"[^"]*"' | cut -d'"' -f4)
+WP_NOTIFICATION_STATUS=$(echo "$WP_NOTIFICATION_BODY" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+echo ""
+if [ "$WP_NOTIFICATION_TYPE" = "WAITLIST_PROMOTED" ] && [ "$WP_NOTIFICATION_STATUS" = "SENT" ]; then
+  echo "  SUCCESS — notification-service recorded a SENT WAITLIST_PROMOTED notification."
+else
+  echo "  WARN: Expected type=WAITLIST_PROMOTED status=SENT, got type=$WP_NOTIFICATION_TYPE status=$WP_NOTIFICATION_STATUS"
+fi
+echo ""

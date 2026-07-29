@@ -6,6 +6,7 @@ import com.ticketing.notification.domain.NotificationType;
 import com.ticketing.notification.dto.NotificationResponse;
 import com.ticketing.notification.exception.NotificationNotFoundException;
 import com.ticketing.notification.exception.NotificationNotFoundForBookingException;
+import com.ticketing.notification.exception.NotificationNotFoundForWaitlistEntryException;
 import com.ticketing.notification.service.NotificationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -69,6 +70,31 @@ class NotificationControllerTest {
             .willThrow(new NotificationNotFoundForBookingException(bookingId));
 
         mvc.perform(get("/notifications/bookings/{bookingId}", bookingId))
+            .andExpect(status().isNotFound());
+    }
+
+    // ── GET /notifications/waitlist-entries/{waitlistEntryId} ────────────────
+
+    @Test
+    void getNotificationByWaitlistEntry_whenFound_returns200() throws Exception {
+        UUID waitlistEntryId = UUID.randomUUID();
+        Notification notification = aNotification(UUID.randomUUID());
+        notification.setWaitlistEntryId(waitlistEntryId);
+        given(notificationService.getNotificationByWaitlistEntry(waitlistEntryId))
+            .willReturn(NotificationResponse.from(notification));
+
+        mvc.perform(get("/notifications/waitlist-entries/{waitlistEntryId}", waitlistEntryId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.waitlistEntryId").value(waitlistEntryId.toString()));
+    }
+
+    @Test
+    void getNotificationByWaitlistEntry_whenNotFound_returns404() throws Exception {
+        UUID waitlistEntryId = UUID.randomUUID();
+        given(notificationService.getNotificationByWaitlistEntry(waitlistEntryId))
+            .willThrow(new NotificationNotFoundForWaitlistEntryException(waitlistEntryId));
+
+        mvc.perform(get("/notifications/waitlist-entries/{waitlistEntryId}", waitlistEntryId))
             .andExpect(status().isNotFound());
     }
 

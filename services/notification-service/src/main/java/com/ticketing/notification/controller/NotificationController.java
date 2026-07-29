@@ -26,4 +26,9 @@ public class NotificationController {
     public ResponseEntity<NotificationResponse> getNotificationByBooking(@PathVariable UUID bookingId) {
         return ResponseEntity.ok(notificationService.getNotificationByBooking(bookingId));
     }
+
+    @GetMapping("/waitlist-entries/{waitlistEntryId}")
+    public ResponseEntity<NotificationResponse> getNotificationByWaitlistEntry(@PathVariable UUID waitlistEntryId) {
+        return ResponseEntity.ok(notificationService.getNotificationByWaitlistEntry(waitlistEntryId));
+    }
 }

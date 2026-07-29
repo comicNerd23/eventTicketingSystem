@@ -8,6 +8,7 @@ import com.ticketing.notification.domain.NotificationType;
 import com.ticketing.notification.dto.NotificationResponse;
 import com.ticketing.notification.exception.NotificationNotFoundException;
 import com.ticketing.notification.exception.NotificationNotFoundForBookingException;
+import com.ticketing.notification.exception.NotificationNotFoundForWaitlistEntryException;
 import com.ticketing.notification.repository.NotificationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -87,6 +88,113 @@ class NotificationServiceTest {
         then(notificationRepository).should(never()).save(any());
     }
 
+    // ── recordSeatHoldExpired ─────────────────────────────────────────────────
+
+    @Test
+    void recordSeatHoldExpired_whenSendSucceeds_savesSentNotification() {
+        UUID seatId = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        given(notificationRepository.existsByBookingIdAndType(bookingId, NotificationType.SEAT_HOLD_EXPIRED)).willReturn(false);
+        given(notificationSender.send(anyString(), anyString(), anyString())).willReturn(SendResult.succeeded());
+
+        notificationService.recordSeatHoldExpired(bookingId, userId, "user@example.com", seatId, eventId);
+
+        ArgumentCaptor<Notification> saved = ArgumentCaptor.forClass(Notification.class);
+        then(notificationRepository).should().save(saved.capture());
+        assertThat(saved.getValue().getBookingId()).isEqualTo(bookingId);
+        assertThat(saved.getValue().getType()).isEqualTo(NotificationType.SEAT_HOLD_EXPIRED);
+        assertThat(saved.getValue().getStatus()).isEqualTo(NotificationStatus.SENT);
+        assertThat(saved.getValue().getBody()).contains(seatId.toString(), eventId.toString());
+    }
+
+    @Test
+    void recordSeatHoldExpired_whenAlreadyExistsForBooking_isNoOp() {
+        given(notificationRepository.existsByBookingIdAndType(bookingId, NotificationType.SEAT_HOLD_EXPIRED)).willReturn(true);
+
+        notificationService.recordSeatHoldExpired(bookingId, userId, "user@example.com", UUID.randomUUID(), UUID.randomUUID());
+
+        then(notificationSender).shouldHaveNoInteractions();
+        then(notificationRepository).should(never()).save(any());
+    }
+
+    // ── recordBookingCancelled ────────────────────────────────────────────────
+
+    @Test
+    void recordBookingCancelled_whenSendSucceeds_savesSentNotification() {
+        UUID seatId = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        given(notificationRepository.existsByBookingIdAndType(bookingId, NotificationType.BOOKING_CANCELLED)).willReturn(false);
+        given(notificationSender.send(anyString(), anyString(), anyString())).willReturn(SendResult.succeeded());
+
+        notificationService.recordBookingCancelled(bookingId, userId, "user@example.com", seatId, eventId, 89.5);
+
+        ArgumentCaptor<Notification> saved = ArgumentCaptor.forClass(Notification.class);
+        then(notificationRepository).should().save(saved.capture());
+        assertThat(saved.getValue().getType()).isEqualTo(NotificationType.BOOKING_CANCELLED);
+        assertThat(saved.getValue().getStatus()).isEqualTo(NotificationStatus.SENT);
+        assertThat(saved.getValue().getBody()).contains("89.5");
+    }
+
+    @Test
+    void recordBookingCancelled_whenAmountGbpNull_omitsRefundLine() {
+        given(notificationRepository.existsByBookingIdAndType(bookingId, NotificationType.BOOKING_CANCELLED)).willReturn(false);
+        given(notificationSender.send(anyString(), anyString(), anyString())).willReturn(SendResult.succeeded());
+
+        notificationService.recordBookingCancelled(bookingId, userId, "user@example.com",
+            UUID.randomUUID(), UUID.randomUUID(), null);
+
+        ArgumentCaptor<Notification> saved = ArgumentCaptor.forClass(Notification.class);
+        then(notificationRepository).should().save(saved.capture());
+        assertThat(saved.getValue().getBody()).doesNotContain("refund");
+    }
+
+    @Test
+    void recordBookingCancelled_whenAlreadyExistsForBooking_isNoOp() {
+        given(notificationRepository.existsByBookingIdAndType(bookingId, NotificationType.BOOKING_CANCELLED)).willReturn(true);
+
+        notificationService.recordBookingCancelled(bookingId, userId, "user@example.com",
+            UUID.randomUUID(), UUID.randomUUID(), 50.0);
+
+        then(notificationSender).shouldHaveNoInteractions();
+        then(notificationRepository).should(never()).save(any());
+    }
+
+    // ── recordWaitlistPromoted ────────────────────────────────────────────────
+
+    @Test
+    void recordWaitlistPromoted_whenSendSucceeds_savesSentNotificationWithWaitlistEntryId() {
+        UUID waitlistEntryId = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        Instant offerExpiresAt = Instant.now().plusSeconds(900);
+        given(notificationRepository.existsByWaitlistEntryIdAndType(waitlistEntryId, NotificationType.WAITLIST_PROMOTED))
+            .willReturn(false);
+        given(notificationSender.send(anyString(), anyString(), anyString())).willReturn(SendResult.succeeded());
+
+        notificationService.recordWaitlistPromoted(waitlistEntryId, userId, "user@example.com", eventId,
+            "Test Event", offerExpiresAt);
+
+        ArgumentCaptor<Notification> saved = ArgumentCaptor.forClass(Notification.class);
+        then(notificationRepository).should().save(saved.capture());
+        assertThat(saved.getValue().getWaitlistEntryId()).isEqualTo(waitlistEntryId);
+        assertThat(saved.getValue().getBookingId()).isNull();
+        assertThat(saved.getValue().getType()).isEqualTo(NotificationType.WAITLIST_PROMOTED);
+        assertThat(saved.getValue().getStatus()).isEqualTo(NotificationStatus.SENT);
+        assertThat(saved.getValue().getSubject()).contains("Test Event");
+    }
+
+    @Test
+    void recordWaitlistPromoted_whenAlreadyExistsForEntry_isNoOp() {
+        UUID waitlistEntryId = UUID.randomUUID();
+        given(notificationRepository.existsByWaitlistEntryIdAndType(waitlistEntryId, NotificationType.WAITLIST_PROMOTED))
+            .willReturn(true);
+
+        notificationService.recordWaitlistPromoted(waitlistEntryId, userId, "user@example.com",
+            UUID.randomUUID(), "Test Event", Instant.now());
+
+        then(notificationSender).shouldHaveNoInteractions();
+        then(notificationRepository).should(never()).save(any());
+    }
+
     // ── getNotification / getNotificationByBooking ──────────────────────────
 
     @Test
@@ -112,7 +220,7 @@ class NotificationServiceTest {
     @Test
     void getNotificationByBooking_whenExists_returnsResponse() {
         Notification notification = aNotification(bookingId);
-        given(notificationRepository.findByBookingId(bookingId)).willReturn(Optional.of(notification));
+        given(notificationRepository.findFirstByBookingIdOrderByCreatedAtDesc(bookingId)).willReturn(Optional.of(notification));
 
         NotificationResponse response = notificationService.getNotificationByBooking(bookingId);
 
@@ -121,10 +229,31 @@ class NotificationServiceTest {
 
     @Test
     void getNotificationByBooking_whenNotFound_throwsNotificationNotFoundForBookingException() {
-        given(notificationRepository.findByBookingId(bookingId)).willReturn(Optional.empty());
+        given(notificationRepository.findFirstByBookingIdOrderByCreatedAtDesc(bookingId)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> notificationService.getNotificationByBooking(bookingId))
             .isInstanceOf(NotificationNotFoundForBookingException.class);
+    }
+
+    @Test
+    void getNotificationByWaitlistEntry_whenExists_returnsResponse() {
+        UUID waitlistEntryId = UUID.randomUUID();
+        Notification notification = aNotification(bookingId);
+        notification.setWaitlistEntryId(waitlistEntryId);
+        given(notificationRepository.findByWaitlistEntryId(waitlistEntryId)).willReturn(Optional.of(notification));
+
+        NotificationResponse response = notificationService.getNotificationByWaitlistEntry(waitlistEntryId);
+
+        assertThat(response.getWaitlistEntryId()).isEqualTo(waitlistEntryId);
+    }
+
+    @Test
+    void getNotificationByWaitlistEntry_whenNotFound_throwsNotificationNotFoundForWaitlistEntryException() {
+        UUID waitlistEntryId = UUID.randomUUID();
+        given(notificationRepository.findByWaitlistEntryId(waitlistEntryId)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> notificationService.getNotificationByWaitlistEntry(waitlistEntryId))
+            .isInstanceOf(NotificationNotFoundForWaitlistEntryException.class);
     }
 
     // ── helper ────────────────────────────────────────────────────────────────

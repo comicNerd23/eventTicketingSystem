@@ -13,8 +13,9 @@ public class Notification {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(nullable = false)
     private UUID bookingId;
+
+    private UUID waitlistEntryId;
 
     @Column(nullable = false)
     private UUID userId;
@@ -43,6 +44,8 @@ public class Notification {
     public void setId(UUID id) { this.id = id; }
     public UUID getBookingId() { return bookingId; }
     public void setBookingId(UUID bookingId) { this.bookingId = bookingId; }
+    public UUID getWaitlistEntryId() { return waitlistEntryId; }
+    public void setWaitlistEntryId(UUID waitlistEntryId) { this.waitlistEntryId = waitlistEntryId; }
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
     public String getUserEmail() { return userEmail; }

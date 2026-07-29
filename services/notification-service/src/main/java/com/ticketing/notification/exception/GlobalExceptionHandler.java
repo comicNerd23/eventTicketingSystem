@@ -20,4 +20,10 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(404)
             .body(new ErrorResponse(404, "Not Found", e.getMessage(), req.getRequestURI()));
     }
+
+    @ExceptionHandler(NotificationNotFoundForWaitlistEntryException.class)
+    public ResponseEntity<ErrorResponse> handleNotificationNotFoundForWaitlistEntry(NotificationNotFoundForWaitlistEntryException e, HttpServletRequest req) {
+        return ResponseEntity.status(404)
+            .body(new ErrorResponse(404, "Not Found", e.getMessage(), req.getRequestURI()));
+    }
 }
