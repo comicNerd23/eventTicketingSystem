@@ -242,3 +242,33 @@ echo "    payment-completed — its handlePaymentCompleted() no-ops on this seco
 echo "    (booking already CONFIRMED). This is expected while both consumers coexist — see"
 echo "    docs/plan.md for the follow-up once payment-service replaces payment-simulator."
 echo ""
+
+# ── Step 8: notification-service — independently consumed the same ticket-issued event ──
+NOTIFICATION_BASE="http://localhost:8084"
+echo ">>> 8. GET /notifications/bookings/$BOOKING_ID (notification-service)"
+echo "    booking-service published ticket-issued back in Step 4 when the booking was CONFIRMED."
+echo "    notification-service independently consumed it and recorded a confirmation notification."
+for i in 1 2 3 4 5; do
+  NOTIFICATION_RESPONSE=$(curl -s -w "\n%{http_code}" "$NOTIFICATION_BASE/notifications/bookings/$BOOKING_ID")
+  HTTP_CODE=$(echo "$NOTIFICATION_RESPONSE" | tail -1)
+  if [ "$HTTP_CODE" = "200" ]; then break; fi
+  sleep 1
+done
+NOTIFICATION_BODY=$(echo "$NOTIFICATION_RESPONSE" | head -1)
+echo "HTTP $HTTP_CODE"
+echo "$NOTIFICATION_BODY"
+
+if [ "$HTTP_CODE" != "200" ]; then
+  echo "ERROR: Expected 200, got $HTTP_CODE"
+  exit 1
+fi
+
+NOTIFICATION_TYPE=$(echo "$NOTIFICATION_BODY" | grep -o '"type":"[^"]*"' | cut -d'"' -f4)
+NOTIFICATION_STATUS=$(echo "$NOTIFICATION_BODY" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+echo ""
+if [ "$NOTIFICATION_TYPE" = "TICKET_ISSUED" ] && [ "$NOTIFICATION_STATUS" = "SENT" ]; then
+  echo "  SUCCESS — notification-service recorded a SENT TICKET_ISSUED notification."
+else
+  echo "  WARN: Expected type=TICKET_ISSUED status=SENT, got type=$NOTIFICATION_TYPE status=$NOTIFICATION_STATUS"
+fi
+echo ""
