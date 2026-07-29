@@ -84,10 +84,18 @@ Spring Boot 4.1.0 / Java 25, real Postgres persistence (own database `ticketing_
 
 Deferred to later slices: the other three consumed events (`seat-hold-expired`, `booking-cancelled`, `waitlist-promoted`), a real email provider behind `NotificationSender`.
 
-**Next up:** retire `payment-simulator` and wire payment-service into the live saga, deepen notification-service (remaining 3 events), start another new service (waitlist-service, api-gateway), or deepen event-service (seat map generation).
+### booking-service — Redis TTL-expiry detection done
+
+ADR-003's keyspace-notification design, previously fully unbuilt, is now real: Redis is configured with `notify-keyspace-events KEA`; `SeatHoldExpiredListener` (extends Spring Data Redis's `KeyExpirationEventMessageListener`) detects real `seat-hold:*` key expiry and calls `BookingService.expireHold(seatId)`, which transitions the HELD booking to `EXPIRED` and publishes `seat-hold-expired` (previously spec'd, never implemented). `SeatHoldService`'s TTL is now configurable (`booking.hold.ttl-seconds`, default 600) so it can be shortened in tests — `SeatHoldExpiryIntegrationTest` overrides it to 2s and asserts on a **real** Redis-fired expiry (not a manually-published Kafka event), proving the mechanism end-to-end.
+
+19 new/updated tests passing (34 unit/controller unaffected + `SeatHoldServiceTest` updated for configurable TTL + 2 new `BookingServiceTest.expireHold` cases + 1 new `SeatHoldExpiryIntegrationTest`).
+
+Not demoed live in `demo.sh` — a 10-minute (or even short-override) real-time wait isn't practical inside the existing flow; the Testcontainers integration test is the real proof.
+
+**Next up:** Slice 3 (seat-released fix + booking cancel endpoint → booking-cancelled), then Slice 4 (waitlist-service, built from its existing spec), then Slice 5 (notification-service's remaining 3 consumers) — all part of the same multi-slice arc to give notification-service's new consumers real triggers instead of manually-published test events.
 
 ### Remaining services (not yet scoped into slices)
-waitlist-service, api-gateway
+waitlist-service (in progress, see above), api-gateway
 
 ---
 

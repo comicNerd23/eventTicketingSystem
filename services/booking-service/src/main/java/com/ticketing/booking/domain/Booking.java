@@ -35,6 +35,7 @@ public class Booking {
     private Instant holdExpiresAt;
     private Instant confirmedAt;
     private Instant cancelledAt;
+    private Instant expiredAt;
     private String ticketReference;
 
     @Column(nullable = false, updatable = false)
@@ -62,6 +63,8 @@ public class Booking {
     public void setConfirmedAt(Instant confirmedAt) { this.confirmedAt = confirmedAt; }
     public Instant getCancelledAt() { return cancelledAt; }
     public void setCancelledAt(Instant cancelledAt) { this.cancelledAt = cancelledAt; }
+    public Instant getExpiredAt() { return expiredAt; }
+    public void setExpiredAt(Instant expiredAt) { this.expiredAt = expiredAt; }
     public String getTicketReference() { return ticketReference; }
     public void setTicketReference(String ticketReference) { this.ticketReference = ticketReference; }
     public Instant getCreatedAt() { return createdAt; }

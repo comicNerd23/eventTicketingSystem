@@ -32,4 +32,9 @@ public class KafkaConfig {
     public NewTopic seatReleasedTopic() {
         return TopicBuilder.name("seat-released").partitions(3).replicas(1).build();
     }
+
+    @Bean
+    public NewTopic seatHoldExpiredTopic() {
+        return TopicBuilder.name("seat-hold-expired").partitions(3).replicas(1).build();
+    }
 }

@@ -271,6 +271,35 @@ class BookingServiceTest {
         then(seatHoldService).should().releaseHold(seatId);
     }
 
+    // ── expireHold ────────────────────────────────────────────────────────────
+
+    @Test
+    void expireHold_whenHeldBookingExistsForSeat_transitionsToExpiredAndPublishes() {
+        UUID bookingId = UUID.randomUUID();
+        Booking booking = aBooking(bookingId, seatId, BookingStatus.HELD);
+        given(bookingRepository.findBySeatIdAndStatus(seatId, BookingStatus.HELD)).willReturn(Optional.of(booking));
+        given(bookingRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+
+        bookingService.expireHold(seatId);
+
+        ArgumentCaptor<Booking> saved = ArgumentCaptor.forClass(Booking.class);
+        then(bookingRepository).should().save(saved.capture());
+        assertThat(saved.getValue().getStatus()).isEqualTo(BookingStatus.EXPIRED);
+        assertThat(saved.getValue().getExpiredAt()).isNotNull();
+
+        then(eventPublisher).should().publishSeatHoldExpired(booking);
+    }
+
+    @Test
+    void expireHold_whenNoHeldBookingForSeat_isNoOp() {
+        given(bookingRepository.findBySeatIdAndStatus(seatId, BookingStatus.HELD)).willReturn(Optional.empty());
+
+        bookingService.expireHold(seatId);
+
+        then(bookingRepository).should(never()).save(any());
+        then(eventPublisher).shouldHaveNoInteractions();
+    }
+
     // ── getBooking ────────────────────────────────────────────────────────────
 
     @Test

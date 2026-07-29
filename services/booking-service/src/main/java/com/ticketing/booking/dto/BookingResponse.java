@@ -18,6 +18,7 @@ public class BookingResponse {
     private Instant holdExpiresAt;
     private Instant confirmedAt;
     private Instant cancelledAt;
+    private Instant expiredAt;
     private String ticketReference;
     private Instant createdAt;
 
@@ -34,6 +35,7 @@ public class BookingResponse {
         r.holdExpiresAt = b.getHoldExpiresAt();
         r.confirmedAt = b.getConfirmedAt();
         r.cancelledAt = b.getCancelledAt();
+        r.expiredAt = b.getExpiredAt();
         r.ticketReference = b.getTicketReference();
         r.createdAt = b.getCreatedAt();
         return r;
@@ -50,6 +52,7 @@ public class BookingResponse {
     public Instant getHoldExpiresAt() { return holdExpiresAt; }
     public Instant getConfirmedAt() { return confirmedAt; }
     public Instant getCancelledAt() { return cancelledAt; }
+    public Instant getExpiredAt() { return expiredAt; }
     public String getTicketReference() { return ticketReference; }
     public Instant getCreatedAt() { return createdAt; }
 }

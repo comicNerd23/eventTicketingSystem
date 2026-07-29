@@ -52,6 +52,17 @@ public class BookingEventPublisher {
         publish("ticket-issued", booking.getId().toString(), payload);
     }
 
+    public void publishSeatHoldExpired(Booking booking) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("seatId", booking.getSeatId().toString());
+        payload.put("eventId", booking.getEventId().toString());
+        payload.put("bookingId", booking.getId().toString());
+        payload.put("userId", booking.getUserId().toString());
+        payload.put("userEmail", "demo@ticketing.com");
+
+        publish("seat-hold-expired", booking.getSeatId().toString(), payload);
+    }
+
     private void publish(String topic, String key, Map<String, Object> payload) {
         try {
             Map<String, Object> envelope = new LinkedHashMap<>();

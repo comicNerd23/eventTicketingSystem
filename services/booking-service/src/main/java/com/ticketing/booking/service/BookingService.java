@@ -145,6 +145,18 @@ public class BookingService {
         log.info("Booking cancelled after payment failure: booking={} reason={}", bookingId, failureReason);
     }
 
+    @Transactional
+    public void expireHold(UUID seatId) {
+        bookingRepository.findBySeatIdAndStatus(seatId, BookingStatus.HELD).ifPresentOrElse(booking -> {
+            booking.setStatus(BookingStatus.EXPIRED);
+            booking.setExpiredAt(Instant.now());
+            bookingRepository.save(booking);
+
+            eventPublisher.publishSeatHoldExpired(booking);
+            log.info("Seat hold expired: booking={} seat={}", booking.getId(), seatId);
+        }, () -> log.debug("No HELD booking found for expired seat hold: seat={}", seatId));
+    }
+
     private String generateTicketReference() {
         String year = String.valueOf(LocalDate.now().getYear());
         String suffix = UUID.randomUUID().toString().toUpperCase().replace("-", "").substring(0, 4);

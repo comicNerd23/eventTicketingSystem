@@ -1,8 +1,8 @@
 package com.ticketing.booking.service;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -21,7 +21,12 @@ class SeatHoldServiceTest {
     @Mock StringRedisTemplate redis;
     @Mock ValueOperations<String, String> valueOps;
 
-    @InjectMocks SeatHoldService seatHoldService;
+    SeatHoldService seatHoldService;
+
+    @BeforeEach
+    void setUp() {
+        seatHoldService = new SeatHoldService(redis, 600);
+    }
 
     @Test
     void acquireHold_whenKeyAbsent_setsKeyWithTtlAndReturnsTrue() {
