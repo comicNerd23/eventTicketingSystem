@@ -135,5 +135,20 @@ services:
       EVENT_SERVICE_BASE_URL: http://event-service:8081
     restart: on-failure
 
+  api-gateway:
+    build:
+      context: ../services/api-gateway
+      dockerfile: Dockerfile
+    depends_on: [event-service, booking-service, payment-service, notification-service, waitlist-service]
+    ports:
+      - "8080:8080"
+    environment:
+      EVENT_SERVICE_BASE_URL: http://event-service:8081
+      BOOKING_SERVICE_BASE_URL: http://booking-service:8082
+      PAYMENT_SERVICE_BASE_URL: http://payment-service:8083
+      NOTIFICATION_SERVICE_BASE_URL: http://notification-service:8084
+      WAITLIST_SERVICE_BASE_URL: http://waitlist-service:8085
+    restart: on-failure
+
 volumes:
   postgres_data:

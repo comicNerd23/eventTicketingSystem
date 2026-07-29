@@ -11,6 +11,7 @@ set -e
 
 BASE="http://localhost:8082"
 EVENT_BASE="http://localhost:8081"
+GATEWAY_BASE="http://localhost:8080"
 USER_ID="00000000-0000-0000-0000-000000000099"
 SEAT_ID="$(powershell -Command '[System.Guid]::NewGuid().ToString()' | tr -d '\r')"
 
@@ -396,5 +397,49 @@ if [ "$WP_NOTIFICATION_TYPE" = "WAITLIST_PROMOTED" ] && [ "$WP_NOTIFICATION_STAT
   echo "  SUCCESS — notification-service recorded a SENT WAITLIST_PROMOTED notification."
 else
   echo "  WARN: Expected type=WAITLIST_PROMOTED status=SENT, got type=$WP_NOTIFICATION_TYPE status=$WP_NOTIFICATION_STATUS"
+fi
+echo ""
+
+# ── Step 14: api-gateway — read routed to event-service ──────────────────────
+echo ">>> 14. GET /events?city=London (api-gateway, port 8080 → event-service)"
+echo "    Same call as Step 0d, but through the single client-facing entry point instead"
+echo "    of event-service's own port — proves the gateway's read-path routing works."
+GATEWAY_EVENTS_RESPONSE=$(curl -s -w "\n%{http_code}" "$GATEWAY_BASE/events?city=London")
+HTTP_CODE=$(echo "$GATEWAY_EVENTS_RESPONSE" | tail -1)
+echo "HTTP $HTTP_CODE"
+echo "$GATEWAY_EVENTS_RESPONSE" | head -1
+
+echo ""
+if [ "$HTTP_CODE" = "200" ]; then
+  echo "  SUCCESS — api-gateway routed the read through to event-service."
+else
+  echo "  WARN: Expected 200, got $HTTP_CODE"
+fi
+echo ""
+
+# ── Step 15: api-gateway — write routed to booking-service ───────────────────
+echo ">>> 15. POST /bookings/hold (api-gateway, port 8080 → booking-service)"
+echo "    A fresh hold on a new seat, issued through the gateway instead of booking-service's"
+echo "    own port — proves the gateway's write-path routing (with a request body) works."
+GATEWAY_SEAT_ID="$(powershell -Command '[System.Guid]::NewGuid().ToString()' | tr -d '\r')"
+GATEWAY_HOLD_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$GATEWAY_BASE/bookings/hold" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: $USER_ID" \
+  -d "{
+    \"eventId\": \"$CREATED_EVENT_ID\",
+    \"seatId\": \"$GATEWAY_SEAT_ID\",
+    \"seatLabel\": \"C3\",
+    \"priceGbp\": 75.00
+  }")
+HTTP_CODE=$(echo "$GATEWAY_HOLD_RESPONSE" | tail -1)
+GATEWAY_HOLD_BODY=$(echo "$GATEWAY_HOLD_RESPONSE" | head -1)
+echo "HTTP $HTTP_CODE"
+echo "$GATEWAY_HOLD_BODY"
+
+echo ""
+if [ "$HTTP_CODE" = "201" ]; then
+  echo "  SUCCESS — api-gateway routed the write through to booking-service."
+else
+  echo "  WARN: Expected 201, got $HTTP_CODE"
 fi
 echo ""

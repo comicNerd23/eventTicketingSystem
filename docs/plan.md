@@ -124,10 +124,29 @@ Spring Boot 4.1.0 / Java 25, real Postgres persistence (own database `ticketing_
 
 This closes out the multi-slice arc started to give notification-service real triggers instead of manually-published test events — all four AsyncAPI-documented notification-service events are now wired end-to-end from real producers through to real consumers.
 
-**Next up:** retire `payment-simulator` and wire payment-service into the live saga (deferred since payment-service's Slice 1 — see note above), deepen event-service (seat map generation, blocking full seat-level binding), or start `api-gateway`.
+### api-gateway — done
+
+The sixth and last service from ADR-001, built with no pre-existing spec (unlike every other service). Single client-facing entry point (port 8080) using **Spring Cloud Gateway, reactive/WebFlux** — see `docs/adr/ADR-007-api-gateway-choice.md` for the full comparison against Gateway MVC and infra-level alternatives (dedicated API gateway product, service mesh + Ingress), including the explicit caveat that this application-level Java gateway is a portfolio-skill-demonstration choice, not what a genuinely enterprise-scale system would use.
+
+Declarative path-based routing in `application.yml` (`spring.cloud.gateway.server.webflux.routes` — this exact property path, and the artifact split into `spring-cloud-starter-gateway-server-webflux`/`-webmvc`, are new as of the Spring Cloud version resolved here; no prior version was paired with Spring Boot 4.1.0 in this repo). No overlapping path prefixes across services, so no `StripPrefix`/rewriting needed — pure forward-as-is:
+- `/venues/**`, `/events/**` → event-service
+- `/bookings/**` → booking-service
+- `/payments/**` → payment-service
+- `/notifications/**` → notification-service
+- `/waitlist/**` → waitlist-service
+
+**Versions resolved** (documented here same as the Boot 4 migration doc, since no prior art existed for this pairing): `spring-cloud-dependencies` **2025.1.2** (the latest available train; its own BOM targets Boot 4.0.7, one minor behind this project's 4.1.0, but proved compatible in practice), pulling in `spring-cloud-gateway-dependencies` 5.0.2. The reactive test client needed an explicit `spring-boot-webtestclient` dependency — `@AutoConfigureWebTestClient`/`WebTestClientAutoConfiguration` live in that module (package `org.springframework.boot.webtestclient.autoconfigure`), not bundled with `spring-boot-starter-test` or the `spring-boot-webflux-test` slice-test module (that one is for `@WebFluxTest` only).
+
+Out of scope for this slice, deliberately (see ADR-007 and the plan): CORS (no frontend yet), rate limiting, circuit breakers, auth/JWT logic — headers pass through unchanged.
+
+6 tests passing (`RoutingIntegrationTest`, one per route): each spins up a JDK-native `com.sun.net.httpserver.HttpServer` stub bound to a random port (zero new test dependency), wires its address in via `@DynamicPropertySource` overriding the route's `*.service.base-url` property, and asserts a real request through the gateway reaches the stub and its response comes back — proving an actual network hop, not a mocked route table. (Caught one real test-authoring bug along the way: stopping the stub servers in `@AfterEach` killed them after the *first* test while the cached Spring context — and its already-resolved route URIs — stayed alive for the rest, so every subsequent test got connection-refused; fixed by stopping them once in `@AfterAll` instead.)
+
+Wired into `docker/docker-compose.yml` (port 8080, `depends_on` all five downstream services) and `demo.sh`: Step 14 re-issues Step 0d's `GET /events` through the gateway instead of event-service's own port (proves read-path routing); Step 15 issues a fresh `POST /bookings/hold` through the gateway (proves write-path routing with a request body) — not a full re-run of the whole saga through the gateway, since that would just duplicate Steps 1-13's already-proven business logic.
+
+**Next up:** retire `payment-simulator` and wire payment-service into the live saga (deferred since payment-service's Slice 1 — see note above), deepen event-service (seat map generation, blocking full seat-level binding), add a `booking-cancelled` consumer to payment-service for real refunds (a live gap now that booking-service actually publishes it), or start Phase 4 (Angular frontend).
 
 ### Remaining services (not yet scoped into slices)
-api-gateway
+None — all six services from ADR-001 are now built. Remaining work is deepening existing services (see "Next up" above) plus Phases 4 (frontend) and 5 (DevOps).
 
 ---
 

@@ -1,0 +1,52 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: event-service
+              uri: ${event.service.base-url}
+              predicates:
+                - Path=/venues/**,/events/**
+            - id: booking-service
+              uri: ${booking.service.base-url}
+              predicates:
+                - Path=/bookings/**
+            - id: payment-service
+              uri: ${payment.service.base-url}
+              predicates:
+                - Path=/payments/**
+            - id: notification-service
+              uri: ${notification.service.base-url}
+              predicates:
+                - Path=/notifications/**
+            - id: waitlist-service
+              uri: ${waitlist.service.base-url}
+              predicates:
+                - Path=/waitlist/**
+
+event:
+  service:
+    base-url: http://localhost:8081
+booking:
+  service:
+    base-url: http://localhost:8082
+payment:
+  service:
+    base-url: http://localhost:8083
+notification:
+  service:
+    base-url: http://localhost:8084
+waitlist:
+  service:
+    base-url: http://localhost:8085
+
+logging:
+  level:
+    com.ticketing: DEBUG
+    org.springframework.cloud.gateway: INFO
