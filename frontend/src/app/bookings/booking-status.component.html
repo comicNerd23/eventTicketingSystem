@@ -1,0 +1,43 @@
+@if (error(); as err) {
+  <p class="error">{{ err }}</p>
+}
+
+@if (booking(); as b) {
+  <a routerLink="/">&larr; Back to events</a>
+
+  <h1>{{ b.eventTitle }}</h1>
+  <p class="seat">Seat {{ b.seatLabel }} &ndash; &pound;{{ b.totalAmountGbp }}</p>
+
+  @switch (b.status) {
+    @case ('HELD') {
+      <p class="status held">Held &ndash; expires in {{ countdown() }}</p>
+      <div class="actions">
+        <button type="button" (click)="confirm()" [disabled]="confirming() || cancelling()">
+          {{ confirming() ? 'Confirming…' : 'Confirm & Pay (demo)' }}
+        </button>
+        <button type="button" (click)="cancel()" [disabled]="confirming() || cancelling()">
+          {{ cancelling() ? 'Releasing…' : 'Release seat' }}
+        </button>
+      </div>
+      <p class="hint">
+        Payment is stubbed for this demo &mdash; "Confirm &amp; Pay" simulates a real card charge; no card details
+        are collected.
+      </p>
+    }
+    @case ('PAYMENT_PENDING') {
+      <p class="status pending">Processing payment&hellip;</p>
+    }
+    @case ('CONFIRMED') {
+      <p class="status confirmed">Booking confirmed!</p>
+      <p class="ticket">Ticket reference: <strong>{{ b.ticketReference }}</strong></p>
+    }
+    @case ('CANCELLED') {
+      <p class="status cancelled">This booking was cancelled.</p>
+    }
+    @case ('EXPIRED') {
+      <p class="status expired">Your hold expired &ndash; the seat is available again.</p>
+    }
+  }
+} @else if (!error()) {
+  <p>Loading booking&hellip;</p>
+}

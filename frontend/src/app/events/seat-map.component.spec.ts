@@ -1,8 +1,10 @@
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
+import { of, throwError } from 'rxjs';
 
-import { Event, Seat } from './event.model';
+import type { Booking } from '../bookings/booking.model';
+import { BookingApiService } from '../bookings/booking-api.service';
+import type { Event, Seat } from './event.model';
 import { EventsApiService } from './events-api.service';
 import { SeatMapComponent } from './seat-map.component';
 
@@ -58,32 +60,34 @@ describe('SeatMapComponent', () => {
     }
   ];
 
-  beforeEach(async () => {
-    const eventsApiStub = {
-      getEvent: () => of(mockEvent),
-      getSeatMap: () => of(mockSeats)
-    };
+  const eventsApiStub = {
+    getEvent: () => of(mockEvent),
+    getSeatMap: () => of(mockSeats)
+  };
 
+  async function setup(bookingApiStub: Partial<BookingApiService>) {
     await TestBed.configureTestingModule({
       imports: [SeatMapComponent],
       providers: [
         provideRouter([]),
         { provide: EventsApiService, useValue: eventsApiStub },
+        { provide: BookingApiService, useValue: bookingApiStub },
         {
           provide: ActivatedRoute,
           useValue: { snapshot: { paramMap: convertToParamMap({ id: mockEvent.id }) } }
         }
       ]
     }).compileComponents();
-  });
+    return TestBed.createComponent(SeatMapComponent);
+  }
 
-  it('should create', () => {
-    const fixture = TestBed.createComponent(SeatMapComponent);
+  it('should create', async () => {
+    const fixture = await setup({});
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('renders the event header, legend, and one rect per seat grouped by section', () => {
-    const fixture = TestBed.createComponent(SeatMapComponent);
+  it('renders the event header, legend, and one rect per seat grouped by section', async () => {
+    const fixture = await setup({});
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
@@ -102,5 +106,55 @@ describe('SeatMapComponent', () => {
 
     const bookedRect = Array.from(rects).find((r) => r.getAttribute('class')?.includes('seat-booked'));
     expect(bookedRect?.getAttribute('fill')).toBe('#9e9e9e');
+  });
+
+  it('clicking an AVAILABLE seat holds it and navigates to the booking page', async () => {
+    const mockBooking: Booking = {
+      id: '99999999-9999-9999-9999-999999999999',
+      eventId: mockEvent.id,
+      eventTitle: mockEvent.title,
+      seatId: mockSeats[0].id,
+      seatLabel: mockSeats[0].label,
+      userId: '00000000-0000-0000-0000-000000000099',
+      status: 'HELD',
+      totalAmountGbp: mockSeats[0].priceGbp,
+      holdExpiresAt: new Date(Date.now() + 600_000).toISOString(),
+      confirmedAt: null,
+      cancelledAt: null,
+      expiredAt: null,
+      ticketReference: null,
+      createdAt: new Date().toISOString()
+    };
+    const holdSeat = jasmine.createSpy().and.returnValue(of(mockBooking));
+
+    const fixture = await setup({ holdSeat });
+    fixture.detectChanges();
+
+    const router = TestBed.inject(Router);
+    const navigateSpy = spyOn(router, 'navigate');
+
+    const availableRect = Array.from(fixture.nativeElement.querySelectorAll('rect')).find((r) =>
+      (r as SVGRectElement).getAttribute('class')?.includes('seat-available')
+    ) as SVGRectElement;
+    availableRect.dispatchEvent(new Event('click'));
+    fixture.detectChanges();
+
+    expect(holdSeat).toHaveBeenCalledWith(mockEvent.id, mockSeats[0].id);
+    expect(navigateSpy).toHaveBeenCalledWith(['/bookings', mockBooking.id]);
+  });
+
+  it('shows an inline error and stays on the page if the seat was already taken', async () => {
+    const holdSeat = jasmine.createSpy().and.returnValue(throwError(() => new Error('conflict')));
+
+    const fixture = await setup({ holdSeat });
+    fixture.detectChanges();
+
+    const availableRect = Array.from(fixture.nativeElement.querySelectorAll('rect')).find((r) =>
+      (r as SVGRectElement).getAttribute('class')?.includes('seat-available')
+    ) as SVGRectElement;
+    availableRect.dispatchEvent(new Event('click'));
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('just taken by someone else');
   });
 });

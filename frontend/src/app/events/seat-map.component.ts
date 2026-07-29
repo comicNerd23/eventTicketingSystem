@@ -1,8 +1,9 @@
 import { AsyncPipe, DatePipe } from '@angular/common';
 import { Component, inject } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Observable, forkJoin, map } from 'rxjs';
 
+import { BookingApiService } from '../bookings/booking-api.service';
 import { Event, Seat, SeatStatus } from './event.model';
 import { EventsApiService } from './events-api.service';
 
@@ -54,7 +55,9 @@ function groupBySection(seats: Seat[]): SeatSection[] {
 })
 export class SeatMapComponent {
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly eventsApi = inject(EventsApiService);
+  private readonly bookingApi = inject(BookingApiService);
 
   readonly cellSize = CELL_SIZE;
 
@@ -65,12 +68,19 @@ export class SeatMapComponent {
     seats: this.eventsApi.getSeatMap(this.eventId)
   }).pipe(map(({ event, seats }) => ({ event, sections: groupBySection(seats) })));
 
+  holdingSeatId: string | null = null;
+  holdError: string | null = null;
+
   seatColor(status: SeatStatus): string {
     return SEAT_COLORS[status];
   }
 
-  seatClass(status: SeatStatus): string {
-    return `seat seat-${status.toLowerCase()}`;
+  seatClass(seat: Seat): string {
+    const classes = ['seat', `seat-${seat.status.toLowerCase()}`];
+    if (seat.id === this.holdingSeatId) {
+      classes.push('seat-holding');
+    }
+    return classes.join(' ');
   }
 
   seatX(seat: Seat): number {
@@ -79,5 +89,22 @@ export class SeatMapComponent {
 
   seatY(seat: Seat): number {
     return (seat.rowNumber - 1) * CELL_SIZE;
+  }
+
+  selectSeat(seat: Seat): void {
+    if (seat.status !== 'AVAILABLE' || this.holdingSeatId) {
+      return;
+    }
+
+    this.holdingSeatId = seat.id;
+    this.holdError = null;
+
+    this.bookingApi.holdSeat(this.eventId, seat.id).subscribe({
+      next: (booking) => this.router.navigate(['/bookings', booking.id]),
+      error: () => {
+        this.holdError = 'That seat was just taken by someone else — please pick another.';
+        this.holdingSeatId = null;
+      }
+    });
   }
 }

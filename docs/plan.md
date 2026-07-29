@@ -202,7 +202,21 @@ No backend or gateway changes needed — `GET /events/{eventId}` and `GET /event
 
 **Real verification, not just tests**: after `ng test` (9/9 passing — 5 existing + 4 new), held one real seat through the live stack (`POST /bookings/hold` via api-gateway, not a stub) to produce a genuine non-`AVAILABLE` status, then loaded the real seat-map page in headless Chrome and confirmed via DOM dump + screenshot that exactly one seat rendered amber (`seat-held`, tooltip `Floor-R1-S1 – £89.5 – HELD`) against 649 green ones — proving the live status composition (event-service ← booking-service) actually reaches the rendered SVG, not just that the page loads. The test hold was then cancelled via `POST /bookings/{id}/cancel` to leave demo data clean. Also confirmed the event list's new `routerLink`s produce real `/events/{id}` hrefs in the rendered DOM.
 
-**Next up:** the interactive booking-flow slice (click an available seat → hold via `POST /bookings/hold` → countdown timer → confirm), retire `payment-simulator` and wire payment-service into the live saga, add a `booking-cancelled` consumer to payment-service for real refunds.
+### Angular frontend — Slice 3 (interactive booking flow), done
+
+No backend or gateway changes needed — `POST /bookings/hold`, `GET /bookings/{id}`, `POST /bookings/{id}/confirm`, `POST /bookings/{id}/cancel` all already existed and were already routed through api-gateway's `/bookings/**` prefix. Pure frontend slice.
+
+**New `frontend/src/app/bookings/` folder**: `BookingApiService` (same shape as `EventsApiService`) plus a new `BookingStatusComponent` at `/bookings/:id` — the booking-flow page. `SeatMapComponent`'s `AVAILABLE` seats are now clickable: a click calls `holdSeat`, then navigates to the new booking page on success (or shows an inline error on a real race — someone else took the seat first — without navigating away).
+
+**First use of Angular signals in this codebase**, deliberately scoped to `BookingStatusComponent` only: every other component so far renders a single Observable through the `async` pipe, but this page needs to merge a GET-on-load, a 1-second poll (while `PAYMENT_PENDING`), a live countdown recompute (while `HELD`), and two button-triggered POSTs into one piece of mutable state — signals fit that better than forcing it through one Observable chain. The rest of the app stays Observable-only; this isn't a stack-wide switch.
+
+`confirmBooking` sends a fixed demo `stripePaymentMethodId` (`pm_demo_4242424242424242`, same literal `demo.sh` already uses) — no real Stripe integration exists yet (`ConfirmBookingRequest` only validates `@NotBlank`), and the UI says so explicitly ("Confirm & Pay" is labeled as a stubbed demo charge, no card form). The five `BookingStatus` values all get a distinct rendered state; `CANCELLED` covers both "you released the hold" and "payment failed" since the backend enum can't currently distinguish them.
+
+19 frontend tests passing (up from 9): `booking-api.service.spec.ts` (4, one per method), `booking-status.component.spec.ts` (4 — HELD render, confirm() updates state, CONFIRMED renders the ticket reference, a failed confirm() surfaces an inline error without throwing), `seat-map.component.spec.ts` (+2 — click-to-hold navigates to the booking page, a hold failure shows the inline race-condition message).
+
+**Real end-to-end verification, not just tests**: held a real seat via the same `POST /bookings/hold` call the click handler makes, screenshotted the live `HELD` page showing a real countdown; called the same `confirm()` request the button makes, waited for the real saga (booking-service → Kafka → `payment-simulator` → Kafka → booking-service) to resolve, and screenshotted the same page now showing `CONFIRMED` with a real ticket reference (`TKT-2026-7E7F`); confirmed the seat map for that event now shows the same seat as `BOOKED`. (No browser-automation click tool is wired into this session, so the "click" itself is proven by the Karma test driving a real DOM click event — this verification instead proves the API calls it makes and the resulting rendered states are real, closing the loop the unit test can't reach.)
+
+**Next up:** retire `payment-simulator` and wire payment-service into the live saga, add a `booking-cancelled` consumer to payment-service for real refunds, WebSocket/live seat updates, a styling framework.
 
 ---
 

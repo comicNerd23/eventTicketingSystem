@@ -48,3 +48,25 @@
 svg {
   display: block;
 }
+
+.seat-available {
+  cursor: pointer;
+}
+
+.seat-available:hover {
+  opacity: 0.8;
+}
+
+.seat-held,
+.seat-booked {
+  cursor: default;
+}
+
+.seat-holding {
+  opacity: 0.6;
+}
+
+.hold-error {
+  color: #c0392b;
+  font-weight: 600;
+}

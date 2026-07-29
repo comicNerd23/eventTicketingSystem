@@ -11,6 +11,10 @@
     <li><span class="swatch booked"></span> Booked</li>
   </ul>
 
+  @if (holdError; as holdErr) {
+    <p class="hold-error">{{ holdErr }}</p>
+  }
+
   @for (section of data.sections; track section.name) {
     <section class="seat-section">
       <h2>{{ section.name }}</h2>
@@ -26,7 +30,8 @@
             [attr.height]="cellSize - 4"
             [attr.rx]="3"
             [attr.fill]="seatColor(seat.status)"
-            [attr.class]="seatClass(seat.status)">
+            [attr.class]="seatClass(seat)"
+            (click)="selectSeat(seat)">
             <title>{{ seat.label }} &ndash; &pound;{{ seat.priceGbp }} &ndash; {{ seat.status }}</title>
           </rect>
         }
