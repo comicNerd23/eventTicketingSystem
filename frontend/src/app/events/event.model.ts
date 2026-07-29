@@ -23,3 +23,16 @@ export interface EventPage {
   page: number;
   size: number;
 }
+
+export type SeatStatus = 'AVAILABLE' | 'HELD' | 'BOOKED';
+
+export interface Seat {
+  id: string;
+  sectionId: string;
+  sectionName: string;
+  rowNumber: number;
+  seatNumber: number;
+  label: string;
+  priceGbp: number;
+  status: SeatStatus;
+}

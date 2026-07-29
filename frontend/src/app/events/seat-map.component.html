@@ -1,0 +1,38 @@
+@if (data$ | async; as data) {
+  <a routerLink="/">&larr; Back to events</a>
+
+  <h1>{{ data.event.title }}</h1>
+  <p class="venue">{{ data.event.venueName }}, {{ data.event.city }}</p>
+  <p class="dates">{{ data.event.startsAt | date: 'medium' }} &ndash; {{ data.event.endsAt | date: 'medium' }}</p>
+
+  <ul class="legend">
+    <li><span class="swatch available"></span> Available</li>
+    <li><span class="swatch held"></span> Held</li>
+    <li><span class="swatch booked"></span> Booked</li>
+  </ul>
+
+  @for (section of data.sections; track section.name) {
+    <section class="seat-section">
+      <h2>{{ section.name }}</h2>
+      <svg
+        [attr.viewBox]="'0 0 ' + section.viewBoxWidth + ' ' + section.viewBoxHeight"
+        [attr.width]="section.viewBoxWidth"
+        [attr.height]="section.viewBoxHeight">
+        @for (seat of section.seats; track seat.id) {
+          <rect
+            [attr.x]="seatX(seat)"
+            [attr.y]="seatY(seat)"
+            [attr.width]="cellSize - 4"
+            [attr.height]="cellSize - 4"
+            [attr.rx]="3"
+            [attr.fill]="seatColor(seat.status)"
+            [attr.class]="seatClass(seat.status)">
+            <title>{{ seat.label }} &ndash; &pound;{{ seat.priceGbp }} &ndash; {{ seat.status }}</title>
+          </rect>
+        }
+      </svg>
+    </section>
+  }
+} @else {
+  <p>Loading seat map&hellip;</p>
+}

@@ -192,7 +192,17 @@ Out of scope for this slice (bigger slices of their own, later in Phase 4): the 
 
 5 tests passing (`EventsApiService` via `HttpTestingController`, `EventListComponent` rendering from a stubbed service). Verified against the real running stack, not just tests: rebuilt api-gateway with the CORS config, started `ng serve`, and confirmed in an actual browser (headless Chrome, real JS execution + screenshot, not just a curl of the static shell) that the events list renders the real events created by `demo.sh` — including live `Access-Control-Allow-Origin` headers on the gateway response.
 
-**Next up:** SVG seat map (the next frontend slice), retire `payment-simulator` and wire payment-service into the live saga, add a `booking-cancelled` consumer to payment-service for real refunds.
+### Angular frontend — Slice 2 (SVG seat map, view-only), done
+
+No backend or gateway changes needed — `GET /events/{eventId}` and `GET /events/{eventId}/seats` already existed from the earlier backend seat-map arc (event-service Slice A/B) and were already routed through api-gateway's existing `/events/**` prefix. Pure frontend slice.
+
+**New `SeatMapComponent`** (`frontend/src/app/events/seat-map.component.{ts,html,css}`), reachable at `/events/:id` — reads the event id from the route, `forkJoin`s `getEvent`/`getSeatMap` (both new methods added to the existing `EventsApiService`, same pattern as `listEvents()`), and renders one `<svg>` per section (grouped by `sectionName`, order preserved from the backend's generation order). Seats have no stored x/y — each `<rect>` derives its grid position directly from `rowNumber`/`seatNumber`. Color is a pure function of status (`AVAILABLE` green, `HELD` amber, `BOOKED` grey), with a `<title>` per seat for a hover tooltip (label + price) and a legend above the grid. `EventListComponent` cards now link to their seat map via `routerLink`.
+
+**Deliberately view-only** — no click handlers, no booking-service calls. Clicking an available seat to hold it (with a countdown timer) is scoped as its own future slice, matching the small-slice discipline used throughout this project.
+
+**Real verification, not just tests**: after `ng test` (9/9 passing — 5 existing + 4 new), held one real seat through the live stack (`POST /bookings/hold` via api-gateway, not a stub) to produce a genuine non-`AVAILABLE` status, then loaded the real seat-map page in headless Chrome and confirmed via DOM dump + screenshot that exactly one seat rendered amber (`seat-held`, tooltip `Floor-R1-S1 – £89.5 – HELD`) against 649 green ones — proving the live status composition (event-service ← booking-service) actually reaches the rendered SVG, not just that the page loads. The test hold was then cancelled via `POST /bookings/{id}/cancel` to leave demo data clean. Also confirmed the event list's new `routerLink`s produce real `/events/{id}` hrefs in the rendered DOM.
+
+**Next up:** the interactive booking-flow slice (click an available seat → hold via `POST /bookings/hold` → countdown timer → confirm), retire `payment-simulator` and wire payment-service into the live saga, add a `booking-cancelled` consumer to payment-service for real refunds.
 
 ---
 

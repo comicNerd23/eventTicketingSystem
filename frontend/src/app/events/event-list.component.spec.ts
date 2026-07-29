@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 
 import { EventListComponent } from './event-list.component';
@@ -37,7 +38,7 @@ describe('EventListComponent', () => {
 
     await TestBed.configureTestingModule({
       imports: [EventListComponent],
-      providers: [{ provide: EventsApiService, useValue: eventsApiStub }]
+      providers: [provideRouter([]), { provide: EventsApiService, useValue: eventsApiStub }]
     }).compileComponents();
   });
 

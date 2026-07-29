@@ -7,7 +7,7 @@
     <ul class="event-list">
       @for (event of eventPage.content; track event.id) {
         <li class="event-card">
-          <h2>{{ event.title }}</h2>
+          <h2><a [routerLink]="['/events', event.id]">{{ event.title }}</a></h2>
           <p class="venue">{{ event.venueName }}, {{ event.city }}</p>
           <p class="dates">{{ event.startsAt | date: 'medium' }} &ndash; {{ event.endsAt | date: 'medium' }}</p>
           <p class="availability">{{ event.availableSeats }} / {{ event.totalSeats }} seats available</p>

@@ -1,0 +1,50 @@
+.venue,
+.dates {
+  margin: 0.25rem 0;
+  color: #555;
+}
+
+.legend {
+  display: flex;
+  gap: 1.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+
+.swatch.available {
+  background: #4caf50;
+}
+
+.swatch.held {
+  background: #ffb300;
+}
+
+.swatch.booked {
+  background: #9e9e9e;
+}
+
+.seat-section {
+  margin-bottom: 2rem;
+}
+
+.seat-section h2 {
+  margin-bottom: 0.5rem;
+}
+
+svg {
+  display: block;
+}
