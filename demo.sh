@@ -273,8 +273,32 @@ else
 fi
 echo ""
 
-# ── Step 9: cancel the CONFIRMED booking — publishes booking-cancelled ───────
-echo ">>> 9. POST /bookings/$BOOKING_ID/cancel (booking-service)"
+# ── Step 9: join the waitlist for the demo event ─────────────────────────────
+WAITLIST_BASE="http://localhost:8085"
+echo ">>> 9. POST /waitlist (waitlist-service)"
+echo "    Joining the waitlist for the same event the demo booking is for."
+WAITLIST_JOIN_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$WAITLIST_BASE/waitlist" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 00000000-0000-0000-0000-000000000042" \
+  -d "{\"eventId\": \"$CREATED_EVENT_ID\"}")
+
+HTTP_CODE=$(echo "$WAITLIST_JOIN_RESPONSE" | tail -1)
+WAITLIST_JOIN_BODY=$(echo "$WAITLIST_JOIN_RESPONSE" | head -1)
+echo "HTTP $HTTP_CODE"
+echo "$WAITLIST_JOIN_BODY"
+
+if [ "$HTTP_CODE" != "201" ]; then
+  echo "ERROR: Expected 201, got $HTTP_CODE"
+  exit 1
+fi
+
+WAITLIST_ENTRY_ID=$(echo "$WAITLIST_JOIN_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+echo ""
+echo "    Waitlist entry: $WAITLIST_ENTRY_ID (status: WAITING)"
+echo ""
+
+# ── Step 10: cancel the CONFIRMED booking — publishes booking-cancelled ──────
+echo ">>> 10. POST /bookings/$BOOKING_ID/cancel (booking-service)"
 echo "    Booking is CONFIRMED (from Step 4) — cancelling it publishes booking-cancelled,"
 echo "    consumed by payment-service (refund), notification-service, and waitlist-service."
 CANCEL_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BASE/bookings/$BOOKING_ID/cancel" \
@@ -297,5 +321,28 @@ if [ "$CANCEL_STATUS" = "CANCELLED" ]; then
   echo "  SUCCESS — booking cancelled, booking-cancelled published to Kafka."
 else
   echo "  WARN: Expected status=CANCELLED, got status=$CANCEL_STATUS"
+fi
+echo ""
+
+# ── Step 11: waitlist-service — promoted in response to booking-cancelled ────
+echo ">>> 11. GET /waitlist/$WAITLIST_ENTRY_ID (waitlist-service, should be PROMOTED)"
+echo "    waitlist-service independently consumed the booking-cancelled event from Step 10"
+echo "    and promoted the next (only) waiting entry for this event."
+for i in 1 2 3 4 5; do
+  WAITLIST_GET_RESPONSE=$(curl -s -w "\n%{http_code}" "$WAITLIST_BASE/waitlist/$WAITLIST_ENTRY_ID")
+  HTTP_CODE=$(echo "$WAITLIST_GET_RESPONSE" | tail -1)
+  WAITLIST_GET_BODY=$(echo "$WAITLIST_GET_RESPONSE" | head -1)
+  WAITLIST_STATUS=$(echo "$WAITLIST_GET_BODY" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+  if [ "$WAITLIST_STATUS" = "PROMOTED" ]; then break; fi
+  sleep 1
+done
+echo "HTTP $HTTP_CODE"
+echo "$WAITLIST_GET_BODY"
+
+echo ""
+if [ "$WAITLIST_STATUS" = "PROMOTED" ]; then
+  echo "  SUCCESS — waitlist entry promoted, waitlist-promoted published to Kafka."
+else
+  echo "  WARN: Expected status=PROMOTED, got status=$WAITLIST_STATUS"
 fi
 echo ""

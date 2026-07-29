@@ -5,4 +5,5 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     CREATE DATABASE ticketing_events;
     CREATE DATABASE ticketing_payments;
     CREATE DATABASE ticketing_notifications;
+    CREATE DATABASE ticketing_waitlist;
 EOSQL

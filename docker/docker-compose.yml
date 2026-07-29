@@ -120,5 +120,20 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     restart: on-failure
 
+  waitlist-service:
+    build:
+      context: ../services/waitlist-service
+      dockerfile: Dockerfile
+    depends_on: [kafka, postgres, event-service]
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ticketing_waitlist
+      SPRING_DATASOURCE_USERNAME: ticketing
+      SPRING_DATASOURCE_PASSWORD: ticketing
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EVENT_SERVICE_BASE_URL: http://event-service:8081
+    restart: on-failure
+
 volumes:
   postgres_data:
