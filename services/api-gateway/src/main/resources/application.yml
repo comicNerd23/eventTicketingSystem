@@ -29,6 +29,12 @@ spring:
               uri: ${waitlist.service.base-url}
               predicates:
                 - Path=/waitlist/**
+          globalcors:
+            cors-configurations:
+              '[/**]':
+                allowedOrigins: "http://localhost:4200"
+                allowedMethods: [GET, POST, PUT, DELETE, OPTIONS]
+                allowedHeaders: "*"
 
 event:
   service:

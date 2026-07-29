@@ -2,7 +2,7 @@
 
 Portfolio project (concerts/sports/shows) built with Spec-Driven Development to demonstrate Kafka/event-driven architecture, microservices, and full-stack (Spring Boot + Angular) skills.
 
-**Stack:** Spring Boot 4.1.0 · Java 25 · Spring Cloud Gateway · Apache Kafka · PostgreSQL (per service) · Redis · Angular 17+ · Docker/K8s · GCP Cloud Run · Stripe sandbox · Testcontainers 1.21.4
+**Stack:** Spring Boot 4.1.0 · Java 25 · Spring Cloud Gateway · Apache Kafka · PostgreSQL (per service) · Redis · Angular 19 · Docker/K8s · GCP Cloud Run · Stripe sandbox · Testcontainers 1.21.4
 
 ---
 
@@ -13,7 +13,7 @@ Portfolio project (concerts/sports/shows) built with Spec-Driven Development to 
 | 1 | Specs — OpenAPI 3.1 per service, AsyncAPI 2.x for Kafka, ADRs, C4 diagram | Done |
 | 2 | Scaffolding — Spring Boot stubs from specs, Docker Compose infra | Done |
 | 3 | Core backend — one service at a time, starting with booking-service | In progress |
-| 4 | Angular frontend — SVG seat map, countdown timer, WebSocket | Not started |
+| 4 | Angular frontend — SVG seat map, countdown timer, WebSocket | In progress |
 | 5 | DevOps — GitHub Actions CI/CD, K8s manifests, GCP Cloud Run | Not started |
 
 Phase order and scope are unchanged from the original plan. What's new is the delivery rule below, which governs how work inside phases 3 and 4 gets broken up and checkpointed.
@@ -171,10 +171,28 @@ Also hit — and had to wait out — a transient Docker Desktop/Windows networki
 
 This closes the two-slice seat-map arc. `demo.sh` now runs the full 15-step flow using only real, event-service-issued seat data end-to-end.
 
-**Next up:** CORS at api-gateway (first task of the actual Angular frontend slice), retire `payment-simulator` and wire payment-service into the live saga, add a `booking-cancelled` consumer to payment-service for real refunds.
-
 ### Remaining services (not yet scoped into slices)
-None — all six services from ADR-001 are now built. Remaining work is deepening existing services (see "Next up" above) plus Phases 4 (frontend) and 5 (DevOps).
+None — all six services from ADR-001 are now built. Remaining backend work is deepening existing services (see "Next up" below) alongside Phase 4 (frontend).
+
+---
+
+## Phase 4 progress
+
+### Angular frontend — Slice 1 (CORS + events list), done
+
+First frontend slice: prove the frontend↔gateway↔backend path works end-to-end with the smallest real feature, not the full SVG seat map yet (that's its own much bigger slice).
+
+**CORS at api-gateway**: `spring.cloud.gateway.server.webflux.globalcors.cors-configurations` in `application.yml`, config-only (no new Java class), scoped to `http://localhost:4200` (Angular's dev-server default) rather than `*` — allows GET/POST/PUT/DELETE/OPTIONS and all headers. Deliberately deferred out of the api-gateway slice itself since no frontend existed yet to need it.
+
+**Angular version pinned to 19** (documented here the same way the Spring Cloud version pairing was — a concrete version pinned because it's what the environment actually supports, not an assumption): the newest Angular CLI (22.x) and even 20/21.x refuse to run on this machine's real Node v22.18.0 (`engines` requires `^20.19.0 || ^22.12.0 || >=24.0.0` or newer). Angular 19.x (`node: ^18.19.1 || ^20.11.1 || >=22.0.0`) is the newest version that actually runs here, and is still within the "Angular 17+" the original stack line named.
+
+**Events list feature** (`frontend/src/app/events/`): standalone `EventListComponent` (root route) + `EventsApiService` (`inject(HttpClient)`, one method `listEvents()` → `GET {apiBaseUrl}/events` through the gateway) + TypeScript interfaces matching event-service's real `EventResponse`/`EventPageResponse` JSON shape. `environment.ts`/`environment.development.ts` carry `apiBaseUrl: 'http://localhost:8080'` (the gateway, not event-service directly). Renders via `async` pipe + `@for`, plain CSS card grid, no styling framework yet.
+
+Out of scope for this slice (bigger slices of their own, later in Phase 4): the SVG seat map, the booking flow (hold/confirm/countdown timer), WebSocket/STOMP live updates, any styling framework, containerizing the frontend (Phase 5 territory — runs via `ng serve` for now).
+
+5 tests passing (`EventsApiService` via `HttpTestingController`, `EventListComponent` rendering from a stubbed service). Verified against the real running stack, not just tests: rebuilt api-gateway with the CORS config, started `ng serve`, and confirmed in an actual browser (headless Chrome, real JS execution + screenshot, not just a curl of the static shell) that the events list renders the real events created by `demo.sh` — including live `Access-Control-Allow-Origin` headers on the gateway response.
+
+**Next up:** SVG seat map (the next frontend slice), retire `payment-simulator` and wire payment-service into the live saga, add a `booking-cancelled` consumer to payment-service for real refunds.
 
 ---
 
