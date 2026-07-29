@@ -42,6 +42,11 @@ public class EventController {
         return ResponseEntity.ok(eventService.getSeatMap(eventId));
     }
 
+    @GetMapping("/{eventId}/seats/{seatId}")
+    public ResponseEntity<SeatResponse> getSeat(@PathVariable UUID eventId, @PathVariable UUID seatId) {
+        return ResponseEntity.ok(eventService.getSeat(eventId, seatId));
+    }
+
     @GetMapping
     public ResponseEntity<EventPageResponse> listEvents(
             @RequestParam(required = false) String city,

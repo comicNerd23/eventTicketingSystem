@@ -107,7 +107,8 @@ if [ "$HTTP_CODE" != "200" ]; then
 fi
 
 SEAT_COUNT=$(echo "$SEAT_MAP_BODY" | grep -o '"id":"[^"]*"' | wc -l)
-SEAT_ID=$(echo "$SEAT_MAP_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+SEAT_ID=$(echo "$SEAT_MAP_BODY" | grep -o '"id":"[^"]*"' | sed -n '1p' | cut -d'"' -f4)
+GATEWAY_SEAT_ID=$(echo "$SEAT_MAP_BODY" | grep -o '"id":"[^"]*"' | sed -n '2p' | cut -d'"' -f4)
 echo ""
 if [ "$SEAT_COUNT" -eq 650 ]; then
   echo "  SUCCESS — 650 seats generated, all AVAILABLE."
@@ -124,9 +125,7 @@ HOLD_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BASE/bookings/hold" \
   -H "X-User-Id: $USER_ID" \
   -d "{
     \"eventId\": \"$CREATED_EVENT_ID\",
-    \"seatId\": \"$SEAT_ID\",
-    \"seatLabel\": \"B7\",
-    \"priceGbp\": 89.50
+    \"seatId\": \"$SEAT_ID\"
   }")
 
 HTTP_CODE=$(echo "$HOLD_RESPONSE" | tail -1)
@@ -441,17 +440,15 @@ echo ""
 
 # ── Step 15: api-gateway — write routed to booking-service ───────────────────
 echo ">>> 15. POST /bookings/hold (api-gateway, port 8080 → booking-service)"
-echo "    A fresh hold on a new seat, issued through the gateway instead of booking-service's"
-echo "    own port — proves the gateway's write-path routing (with a request body) works."
-GATEWAY_SEAT_ID="$(powershell -Command '[System.Guid]::NewGuid().ToString()' | tr -d '\r')"
+echo "    A fresh hold on a different real seat, issued through the gateway instead of"
+echo "    booking-service's own port — proves the gateway's write-path routing (with a"
+echo "    request body) works."
 GATEWAY_HOLD_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$GATEWAY_BASE/bookings/hold" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: $USER_ID" \
   -d "{
     \"eventId\": \"$CREATED_EVENT_ID\",
-    \"seatId\": \"$GATEWAY_SEAT_ID\",
-    \"seatLabel\": \"C3\",
-    \"priceGbp\": 75.00
+    \"seatId\": \"$GATEWAY_SEAT_ID\"
   }")
 HTTP_CODE=$(echo "$GATEWAY_HOLD_RESPONSE" | tail -1)
 GATEWAY_HOLD_BODY=$(echo "$GATEWAY_HOLD_RESPONSE" | head -1)

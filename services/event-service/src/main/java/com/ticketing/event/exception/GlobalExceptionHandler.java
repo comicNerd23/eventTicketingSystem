@@ -24,6 +24,12 @@ public class GlobalExceptionHandler {
             .body(new ErrorResponse(404, "Not Found", e.getMessage(), req.getRequestURI()));
     }
 
+    @ExceptionHandler(SeatNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleSeatNotFound(SeatNotFoundException e, HttpServletRequest req) {
+        return ResponseEntity.status(404)
+            .body(new ErrorResponse(404, "Not Found", e.getMessage(), req.getRequestURI()));
+    }
+
     @ExceptionHandler(BookingServiceUnavailableException.class)
     public ResponseEntity<ErrorResponse> handleBookingServiceUnavailable(BookingServiceUnavailableException e, HttpServletRequest req) {
         return ResponseEntity.status(503)

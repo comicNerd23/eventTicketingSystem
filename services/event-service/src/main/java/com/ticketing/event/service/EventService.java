@@ -14,6 +14,7 @@ import com.ticketing.event.dto.EventPageResponse;
 import com.ticketing.event.dto.EventResponse;
 import com.ticketing.event.dto.SeatResponse;
 import com.ticketing.event.exception.EventNotFoundException;
+import com.ticketing.event.exception.SeatNotFoundException;
 import com.ticketing.event.repository.EventRepository;
 import com.ticketing.event.repository.EventSpecifications;
 import com.ticketing.event.repository.SeatRepository;
@@ -105,6 +106,14 @@ public class EventService {
         return seats.stream()
             .map(seat -> SeatResponse.from(seat, resolveStatus(activeStatusBySeatId.get(seat.getId()))))
             .toList();
+    }
+
+    public SeatResponse getSeat(UUID eventId, UUID seatId) {
+        Seat seat = seatRepository.findByEventIdAndId(eventId, seatId)
+            .orElseThrow(() -> new SeatNotFoundException(eventId, seatId));
+        // Pure inventory lookup — the caller (booking-service) already knows whether
+        // a seat is currently held via its own DB, so status here is a placeholder.
+        return SeatResponse.from(seat, SeatStatus.AVAILABLE);
     }
 
     private SeatStatus resolveStatus(String bookingStatus) {

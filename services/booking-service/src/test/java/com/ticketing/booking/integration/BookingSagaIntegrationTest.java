@@ -95,6 +95,8 @@ class BookingSagaIntegrationTest {
         bookingRepository.deleteAll();
         given(eventServiceClient.getEvent(any()))
             .willAnswer(inv -> new EventInfo(inv.getArgument(0), "Coldplay: Music of the Spheres Tour"));
+        given(eventServiceClient.getSeat(any(), any()))
+            .willAnswer(inv -> new com.ticketing.booking.client.SeatInfo(inv.getArgument(1), "B7", 89.5));
     }
 
     // ── Happy path ────────────────────────────────────────────────────────────
@@ -244,8 +246,6 @@ class BookingSagaIntegrationTest {
         HoldSeatRequest req = new HoldSeatRequest();
         req.setEventId(eventId);
         req.setSeatId(seatId);
-        req.setSeatLabel("B7");
-        req.setPriceGbp(89.5);
         return restTemplate.postForEntity("/bookings/hold", jsonEntity(req), responseType);
     }
 

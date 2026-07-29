@@ -143,6 +143,37 @@ class EventControllerTest {
             .andExpect(status().isNotFound());
     }
 
+    // ── GET /events/{id}/seats/{seatId} ──────────────────────────────────────
+
+    @Test
+    void getSeat_whenExists_returns200() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        Seat seat = new Seat();
+        seat.setId(UUID.randomUUID());
+        seat.setSectionName("Floor");
+        seat.setRowNumber(1);
+        seat.setSeatNumber(1);
+        seat.setLabel("Floor-R1-S1");
+        seat.setPriceGbp(89.5);
+        given(eventService.getSeat(eventId, seat.getId())).willReturn(SeatResponse.from(seat, SeatStatus.AVAILABLE));
+
+        mvc.perform(get("/events/{id}/seats/{seatId}", eventId, seat.getId()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.label").value("Floor-R1-S1"))
+            .andExpect(jsonPath("$.priceGbp").value(89.5));
+    }
+
+    @Test
+    void getSeat_whenNotFound_returns404() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        UUID seatId = UUID.randomUUID();
+        given(eventService.getSeat(eventId, seatId))
+            .willThrow(new com.ticketing.event.exception.SeatNotFoundException(eventId, seatId));
+
+        mvc.perform(get("/events/{id}/seats/{seatId}", eventId, seatId))
+            .andExpect(status().isNotFound());
+    }
+
     // ── GET /events ───────────────────────────────────────────────────────────
 
     @Test

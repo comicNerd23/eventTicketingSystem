@@ -150,6 +150,31 @@ class EventServiceTest {
         assertThat(statusOf(result, seat.getId())).isEqualTo(SeatStatus.AVAILABLE);
     }
 
+    // ── getSeat ───────────────────────────────────────────────────────────────
+
+    @Test
+    void getSeat_whenExists_returnsSeatResponse() {
+        UUID eventId = UUID.randomUUID();
+        Seat seat = aSeat(eventId, "Floor-R1-S1");
+        given(seatRepository.findByEventIdAndId(eventId, seat.getId())).willReturn(java.util.Optional.of(seat));
+
+        SeatResponse response = eventService.getSeat(eventId, seat.getId());
+
+        assertThat(response.getId()).isEqualTo(seat.getId());
+        assertThat(response.getLabel()).isEqualTo("Floor-R1-S1");
+        assertThat(response.getPriceGbp()).isEqualTo(89.5);
+    }
+
+    @Test
+    void getSeat_whenNotFound_throwsSeatNotFoundException() {
+        UUID eventId = UUID.randomUUID();
+        UUID seatId = UUID.randomUUID();
+        given(seatRepository.findByEventIdAndId(eventId, seatId)).willReturn(java.util.Optional.empty());
+
+        assertThatThrownBy(() -> eventService.getSeat(eventId, seatId))
+            .isInstanceOf(com.ticketing.event.exception.SeatNotFoundException.class);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private SeatStatus statusOf(List<SeatResponse> seats, UUID seatId) {

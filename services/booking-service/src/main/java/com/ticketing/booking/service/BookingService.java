@@ -2,6 +2,7 @@ package com.ticketing.booking.service;
 
 import com.ticketing.booking.client.EventInfo;
 import com.ticketing.booking.client.EventServiceClient;
+import com.ticketing.booking.client.SeatInfo;
 import com.ticketing.booking.domain.Booking;
 import com.ticketing.booking.domain.BookingStatus;
 import com.ticketing.booking.dto.ActiveSeatResponse;
@@ -56,6 +57,9 @@ public class BookingService {
         // Validates the event is real and fetches its title from event-service
         EventInfo event = eventServiceClient.getEvent(request.getEventId());
 
+        // Validates the seat is real and fetches its real label/price from event-service
+        SeatInfo seat = eventServiceClient.getSeat(request.getEventId(), request.getSeatId());
+
         boolean acquired = seatHoldService.acquireHold(request.getSeatId());
         if (!acquired) {
             throw new SeatAlreadyHeldException(request.getSeatId());
@@ -65,10 +69,10 @@ public class BookingService {
         booking.setEventId(event.id());
         booking.setEventTitle(event.title());
         booking.setSeatId(request.getSeatId());
-        booking.setSeatLabel(request.getSeatLabel() != null ? request.getSeatLabel() : "A1");
+        booking.setSeatLabel(seat.label());
         booking.setUserId(userId);
         booking.setStatus(BookingStatus.HELD);
-        booking.setTotalAmountGbp(request.getPriceGbp() != null ? request.getPriceGbp() : 75.00);
+        booking.setTotalAmountGbp(seat.priceGbp());
         booking.setHoldExpiresAt(Instant.now().plus(Duration.ofMinutes(10)));
 
         try {

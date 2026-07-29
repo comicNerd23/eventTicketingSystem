@@ -2,6 +2,7 @@ package com.ticketing.booking.client;
 
 import com.ticketing.booking.exception.EventNotFoundException;
 import com.ticketing.booking.exception.EventServiceUnavailableException;
+import com.ticketing.booking.exception.SeatNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -66,6 +67,60 @@ class EventServiceClientTest {
             .andRespond(withServerError());
 
         assertThatThrownBy(() -> client.getEvent(eventId))
+            .isInstanceOf(EventServiceUnavailableException.class);
+    }
+
+    // ── getSeat ───────────────────────────────────────────────────────────────
+
+    @Test
+    void getSeat_whenFound_returnsSeatInfo() {
+        UUID eventId = UUID.randomUUID();
+        UUID seatId = UUID.randomUUID();
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        EventServiceClient client = new EventServiceClient(builder, BASE_URL);
+
+        server.expect(requestTo(BASE_URL + "/events/" + eventId + "/seats/" + seatId))
+            .andRespond(withSuccess(
+                "{\"id\":\"" + seatId + "\",\"label\":\"Floor-R3-S12\",\"priceGbp\":89.5}",
+                MediaType.APPLICATION_JSON));
+
+        SeatInfo info = client.getSeat(eventId, seatId);
+
+        assertThat(info.id()).isEqualTo(seatId);
+        assertThat(info.label()).isEqualTo("Floor-R3-S12");
+        assertThat(info.priceGbp()).isEqualTo(89.5);
+        server.verify();
+    }
+
+    @Test
+    void getSeat_whenNotFound_throwsSeatNotFoundException() {
+        UUID eventId = UUID.randomUUID();
+        UUID seatId = UUID.randomUUID();
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        EventServiceClient client = new EventServiceClient(builder, BASE_URL);
+
+        server.expect(requestTo(BASE_URL + "/events/" + eventId + "/seats/" + seatId))
+            .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertThatThrownBy(() -> client.getSeat(eventId, seatId))
+            .isInstanceOf(SeatNotFoundException.class)
+            .hasMessageContaining(seatId.toString());
+    }
+
+    @Test
+    void getSeat_whenEventServiceErrors_throwsEventServiceUnavailableException() {
+        UUID eventId = UUID.randomUUID();
+        UUID seatId = UUID.randomUUID();
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        EventServiceClient client = new EventServiceClient(builder, BASE_URL);
+
+        server.expect(requestTo(BASE_URL + "/events/" + eventId + "/seats/" + seatId))
+            .andRespond(withServerError());
+
+        assertThatThrownBy(() -> client.getSeat(eventId, seatId))
             .isInstanceOf(EventServiceUnavailableException.class);
     }
 }

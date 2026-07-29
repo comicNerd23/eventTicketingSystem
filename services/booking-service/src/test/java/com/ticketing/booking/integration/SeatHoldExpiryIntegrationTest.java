@@ -90,6 +90,8 @@ class SeatHoldExpiryIntegrationTest {
         bookingRepository.deleteAll();
         given(eventServiceClient.getEvent(any()))
             .willAnswer(inv -> new EventInfo(inv.getArgument(0), "Test Event"));
+        given(eventServiceClient.getSeat(any(), any()))
+            .willAnswer(inv -> new com.ticketing.booking.client.SeatInfo(inv.getArgument(1), "B7", 89.5));
     }
 
     @Test
@@ -97,8 +99,6 @@ class SeatHoldExpiryIntegrationTest {
         HoldSeatRequest req = new HoldSeatRequest();
         req.setEventId(eventId);
         req.setSeatId(seatId);
-        req.setSeatLabel("B7");
-        req.setPriceGbp(89.5);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);

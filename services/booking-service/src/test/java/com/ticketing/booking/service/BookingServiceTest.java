@@ -2,6 +2,7 @@ package com.ticketing.booking.service;
 
 import com.ticketing.booking.client.EventInfo;
 import com.ticketing.booking.client.EventServiceClient;
+import com.ticketing.booking.client.SeatInfo;
 import com.ticketing.booking.domain.Booking;
 import com.ticketing.booking.domain.BookingStatus;
 import com.ticketing.booking.dto.BookingResponse;
@@ -12,6 +13,7 @@ import com.ticketing.booking.exception.BookingNotFoundException;
 import com.ticketing.booking.exception.BookingNotHeldException;
 import com.ticketing.booking.exception.EventNotFoundException;
 import com.ticketing.booking.exception.SeatAlreadyHeldException;
+import com.ticketing.booking.exception.SeatNotFoundException;
 import com.ticketing.booking.kafka.producer.BookingEventPublisher;
 import com.ticketing.booking.repository.BookingRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,6 +60,7 @@ class BookingServiceTest {
     void holdSeat_whenSeatFreeAndRedisAcquired_returnsHeldBooking() {
         given(bookingRepository.existsBySeatIdAndStatusIn(eq(seatId), anyList())).willReturn(false);
         given(eventServiceClient.getEvent(eventId)).willReturn(new EventInfo(eventId, "Test Event"));
+        given(eventServiceClient.getSeat(eventId, seatId)).willReturn(new SeatInfo(seatId, "B7", 89.5));
         given(seatHoldService.acquireHold(seatId)).willReturn(true);
         given(bookingRepository.save(any())).willAnswer(inv -> {
             Booking b = inv.getArgument(0);
@@ -103,6 +106,7 @@ class BookingServiceTest {
     void holdSeat_whenDbSaveFails_releasesRedisLockToPreventLeak() {
         given(bookingRepository.existsBySeatIdAndStatusIn(eq(seatId), anyList())).willReturn(false);
         given(eventServiceClient.getEvent(eventId)).willReturn(new EventInfo(eventId, "Test Event"));
+        given(eventServiceClient.getSeat(eventId, seatId)).willReturn(new SeatInfo(seatId, "B7", 89.5));
         given(seatHoldService.acquireHold(seatId)).willReturn(true);
         given(bookingRepository.save(any())).willThrow(new RuntimeException("DB connection lost"));
 
@@ -114,22 +118,22 @@ class BookingServiceTest {
     }
 
     @Test
-    void holdSeat_usesEventTitleFromEventService_andDefaultsSeatLabelAndPrice() {
+    void holdSeat_usesEventTitleAndSeatLabelAndPriceFromEventService() {
         given(bookingRepository.existsBySeatIdAndStatusIn(eq(seatId), anyList())).willReturn(false);
         given(eventServiceClient.getEvent(eventId)).willReturn(new EventInfo(eventId, "Real Event Title"));
+        given(eventServiceClient.getSeat(eventId, seatId)).willReturn(new SeatInfo(seatId, "Floor-R3-S12", 120.0));
         given(seatHoldService.acquireHold(seatId)).willReturn(true);
         given(bookingRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
 
         HoldSeatRequest req = new HoldSeatRequest();
         req.setEventId(eventId);
         req.setSeatId(seatId);
-        // seatLabel and priceGbp deliberately omitted
 
         BookingResponse response = bookingService.holdSeat(userId, req);
 
         assertThat(response.getEventTitle()).isEqualTo("Real Event Title");
-        assertThat(response.getSeatLabel()).isEqualTo("A1");
-        assertThat(response.getTotalAmountGbp()).isEqualTo(75.0);
+        assertThat(response.getSeatLabel()).isEqualTo("Floor-R3-S12");
+        assertThat(response.getTotalAmountGbp()).isEqualTo(120.0);
     }
 
     @Test
@@ -140,6 +144,19 @@ class BookingServiceTest {
         assertThatThrownBy(() -> bookingService.holdSeat(userId, holdRequest()))
             .isInstanceOf(EventNotFoundException.class)
             .hasMessageContaining(eventId.toString());
+
+        then(seatHoldService).shouldHaveNoInteractions();
+        then(bookingRepository).should(never()).save(any());
+    }
+
+    @Test
+    void holdSeat_whenSeatNotFound_throwsSeatNotFoundException() {
+        given(bookingRepository.existsBySeatIdAndStatusIn(eq(seatId), anyList())).willReturn(false);
+        given(eventServiceClient.getEvent(eventId)).willReturn(new EventInfo(eventId, "Test Event"));
+        given(eventServiceClient.getSeat(eventId, seatId)).willThrow(new SeatNotFoundException(eventId, seatId));
+
+        assertThatThrownBy(() -> bookingService.holdSeat(userId, holdRequest()))
+            .isInstanceOf(SeatNotFoundException.class);
 
         then(seatHoldService).shouldHaveNoInteractions();
         then(bookingRepository).should(never()).save(any());
@@ -426,8 +443,6 @@ class BookingServiceTest {
         HoldSeatRequest req = new HoldSeatRequest();
         req.setEventId(eventId);
         req.setSeatId(seatId);
-        req.setSeatLabel("B7");
-        req.setPriceGbp(89.5);
         return req;
     }
 
