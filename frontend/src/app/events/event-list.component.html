@@ -1,20 +1,26 @@
-<h1>Upcoming Events</h1>
+<h1 class="text-3xl font-bold text-gray-900">Upcoming Events</h1>
 
 @if (eventPage$ | async; as eventPage) {
   @if (eventPage.content.length === 0) {
-    <p>No events found.</p>
+    <p class="mt-6 text-gray-500">No events found.</p>
   } @else {
-    <ul class="event-list">
+    <ul class="event-list mt-6 grid list-none gap-4 p-0">
       @for (event of eventPage.content; track event.id) {
-        <li class="event-card">
-          <h2><a [routerLink]="['/events', event.id]">{{ event.title }}</a></h2>
-          <p class="venue">{{ event.venueName }}, {{ event.city }}</p>
-          <p class="dates">{{ event.startsAt | date: 'medium' }} &ndash; {{ event.endsAt | date: 'medium' }}</p>
-          <p class="availability">{{ event.availableSeats }} / {{ event.totalSeats }} seats available</p>
+        <li class="event-card rounded-lg border border-gray-200 p-4 shadow-sm transition hover:shadow-md">
+          <h2 class="text-xl font-semibold">
+            <a [routerLink]="['/events', event.id]" class="text-indigo-700 hover:underline">{{ event.title }}</a>
+          </h2>
+          <p class="venue mt-1 text-gray-600">{{ event.venueName }}, {{ event.city }}</p>
+          <p class="dates mt-1 text-gray-600">
+            {{ event.startsAt | date: 'medium' }} &ndash; {{ event.endsAt | date: 'medium' }}
+          </p>
+          <p class="availability mt-1 text-gray-600">
+            {{ event.availableSeats }} / {{ event.totalSeats }} seats available
+          </p>
         </li>
       }
     </ul>
   }
 } @else {
-  <p>Loading events&hellip;</p>
+  <p class="mt-6 text-gray-500">Loading events&hellip;</p>
 }

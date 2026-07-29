@@ -1,43 +1,61 @@
 @if (error(); as err) {
-  <p class="error">{{ err }}</p>
+  <p class="error font-semibold text-red-600">{{ err }}</p>
 }
 
 @if (booking(); as b) {
-  <a routerLink="/">&larr; Back to events</a>
+  <a routerLink="/" class="text-indigo-700 hover:underline">&larr; Back to events</a>
 
-  <h1>{{ b.eventTitle }}</h1>
-  <p class="seat">Seat {{ b.seatLabel }} &ndash; &pound;{{ b.totalAmountGbp }}</p>
+  <h1 class="mt-2 text-3xl font-bold text-gray-900">{{ b.eventTitle }}</h1>
+  <p class="seat mt-1 text-gray-600">Seat {{ b.seatLabel }} &ndash; &pound;{{ b.totalAmountGbp }}</p>
 
   @switch (b.status) {
     @case ('HELD') {
-      <p class="status held">Held &ndash; expires in {{ countdown() }}</p>
-      <div class="actions">
-        <button type="button" (click)="confirm()" [disabled]="confirming() || cancelling()">
+      <p class="status held mt-4 inline-block rounded-md bg-amber-100 px-3 py-2 font-semibold text-amber-800">
+        Held &ndash; expires in {{ countdown() }}
+      </p>
+      <div class="actions mt-4 flex gap-3">
+        <button
+          type="button"
+          (click)="confirm()"
+          [disabled]="confirming() || cancelling()"
+          class="rounded-md border border-green-600 bg-green-600 px-4 py-2 text-white transition hover:bg-green-700 disabled:cursor-default disabled:opacity-60">
           {{ confirming() ? 'Confirming…' : 'Confirm & Pay (demo)' }}
         </button>
-        <button type="button" (click)="cancel()" [disabled]="confirming() || cancelling()">
+        <button
+          type="button"
+          (click)="cancel()"
+          [disabled]="confirming() || cancelling()"
+          class="rounded-md border border-gray-300 px-4 py-2 transition hover:bg-gray-50 disabled:cursor-default disabled:opacity-60">
           {{ cancelling() ? 'Releasing…' : 'Release seat' }}
         </button>
       </div>
-      <p class="hint">
+      <p class="hint mt-3 text-sm text-gray-500">
         Payment is stubbed for this demo &mdash; "Confirm &amp; Pay" simulates a real card charge; no card details
         are collected.
       </p>
     }
     @case ('PAYMENT_PENDING') {
-      <p class="status pending">Processing payment&hellip;</p>
+      <p class="status pending mt-4 inline-block rounded-md bg-indigo-100 px-3 py-2 font-semibold text-indigo-800">
+        Processing payment&hellip;
+      </p>
     }
     @case ('CONFIRMED') {
-      <p class="status confirmed">Booking confirmed!</p>
-      <p class="ticket">Ticket reference: <strong>{{ b.ticketReference }}</strong></p>
+      <p class="status confirmed mt-4 inline-block rounded-md bg-green-100 px-3 py-2 font-semibold text-green-800">
+        Booking confirmed!
+      </p>
+      <p class="ticket mt-3 text-lg">Ticket reference: <strong>{{ b.ticketReference }}</strong></p>
     }
     @case ('CANCELLED') {
-      <p class="status cancelled">This booking was cancelled.</p>
+      <p class="status cancelled mt-4 inline-block rounded-md bg-gray-100 px-3 py-2 font-semibold text-gray-600">
+        This booking was cancelled.
+      </p>
     }
     @case ('EXPIRED') {
-      <p class="status expired">Your hold expired &ndash; the seat is available again.</p>
+      <p class="status expired mt-4 inline-block rounded-md bg-gray-100 px-3 py-2 font-semibold text-gray-600">
+        Your hold expired &ndash; the seat is available again.
+      </p>
     }
   }
 } @else if (!error()) {
-  <p>Loading booking&hellip;</p>
+  <p class="mt-6 text-gray-500">Loading booking&hellip;</p>
 }

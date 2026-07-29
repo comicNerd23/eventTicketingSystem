@@ -2,7 +2,7 @@
 
 Portfolio project (concerts/sports/shows) built with Spec-Driven Development to demonstrate Kafka/event-driven architecture, microservices, and full-stack (Spring Boot + Angular) skills.
 
-**Stack:** Spring Boot 4.1.0 · Java 25 · Spring Cloud Gateway · Apache Kafka · PostgreSQL (per service) · Redis · Angular 19 · Docker/K8s · GCP Cloud Run · Stripe sandbox · Testcontainers 1.21.4
+**Stack:** Spring Boot 4.1.0 · Java 25 · Spring Cloud Gateway · Apache Kafka · PostgreSQL (per service) · Redis · Angular 19 · Tailwind CSS 4 · Docker/K8s · GCP Cloud Run · Stripe sandbox · Testcontainers 1.21.4
 
 ---
 
@@ -216,7 +216,17 @@ No backend or gateway changes needed — `POST /bookings/hold`, `GET /bookings/{
 
 **Real end-to-end verification, not just tests**: held a real seat via the same `POST /bookings/hold` call the click handler makes, screenshotted the live `HELD` page showing a real countdown; called the same `confirm()` request the button makes, waited for the real saga (booking-service → Kafka → `payment-simulator` → Kafka → booking-service) to resolve, and screenshotted the same page now showing `CONFIRMED` with a real ticket reference (`TKT-2026-7E7F`); confirmed the seat map for that event now shows the same seat as `BOOKED`. (No browser-automation click tool is wired into this session, so the "click" itself is proven by the Karma test driving a real DOM click event — this verification instead proves the API calls it makes and the resulting rendered states are real, closing the loop the unit test can't reach.)
 
-**Next up:** retire `payment-simulator` and wire payment-service into the live saga, add a `booking-cancelled` consumer to payment-service for real refunds, WebSocket/live seat updates, a styling framework.
+### Angular frontend — Slice 4 (Tailwind CSS), done
+
+Styling decision documented as `docs/adr/ADR-008-frontend-styling.md`: compared keeping hand-written CSS, Angular Material, and Tailwind CSS: Material's strengths (form fields, data tables, dialogs) don't match this app's shape (mostly custom-rendered — the SVG seat map, status-driven booking flow), and would fight the custom SVG styling; Tailwind styles custom markup directly and is a broadly transferable skill rather than an Angular-specific one. Adopted Tailwind v4.
+
+**Wiring**: `tailwindcss` + `@tailwindcss/postcss` (both real npm-resolved version `4.3.3`, checked rather than assumed — same discipline as the Angular/Node and Spring Cloud version pins). Integration is two files: `frontend/.postcssrc.json` (`{"plugins": {"@tailwindcss/postcss": {}}}`) and `@import "tailwindcss";` in `src/styles.css` — no `angular.json` changes, since Angular's esbuild-based `application` builder (already in use) picks up PostCSS config automatically. Confirmed genuinely wired (not just installed) by watching the compiled `styles.css` grow from a few bytes to 3.79 kB (Tailwind's base layer) on the first build before any utility classes were even used in templates, then to 11.20 kB once the three views actually used them.
+
+**Restyled the three existing views in one pass** (event list, seat map, booking status) — a half-migrated app was judged a worse intermediate state than doing all three together, since these were small mechanical template edits, not new logic. The seat map's status-identifying class names (`seat-available`, `seat-held`, `seat-booked`, `seat-holding`) were kept exactly as-is — both the click-handling logic and the existing Karma tests key off these substrings — with Tailwind utilities (`cursor-pointer`, `hover:opacity-80`, etc.) appended alongside them in `seatClass()`, not replacing them. **No other `.ts` logic changes anywhere in this slice.**
+
+All 19 existing Jasmine tests passed **unmodified** — they assert on rendered text content and the semantic status-class substrings above, never on layout CSS, which is exactly the cross-check this slice's purely-visual nature predicted. Verified live in headless Chrome (same method as the previous three slices): screenshotted the real events list, a real seat map (with an already-`BOOKED` seat from earlier testing still correctly grey), a real `HELD` booking page, and a real `CONFIRMED` booking page — all rendering actual Tailwind spacing/color/typography, not just class names present in markup.
+
+**Next up:** retire `payment-simulator` and wire payment-service into the live saga, add a `booking-cancelled` consumer to payment-service for real refunds, WebSocket/live seat updates.
 
 ---
 

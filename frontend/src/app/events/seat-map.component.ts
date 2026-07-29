@@ -77,8 +77,13 @@ export class SeatMapComponent {
 
   seatClass(seat: Seat): string {
     const classes = ['seat', `seat-${seat.status.toLowerCase()}`];
+    if (seat.status === 'AVAILABLE') {
+      classes.push('cursor-pointer', 'hover:opacity-80');
+    } else {
+      classes.push('cursor-default');
+    }
     if (seat.id === this.holdingSeatId) {
-      classes.push('seat-holding');
+      classes.push('seat-holding', 'opacity-60');
     }
     return classes.join(' ');
   }

@@ -1,27 +1,36 @@
 @if (data$ | async; as data) {
-  <a routerLink="/">&larr; Back to events</a>
+  <a routerLink="/" class="text-indigo-700 hover:underline">&larr; Back to events</a>
 
-  <h1>{{ data.event.title }}</h1>
-  <p class="venue">{{ data.event.venueName }}, {{ data.event.city }}</p>
-  <p class="dates">{{ data.event.startsAt | date: 'medium' }} &ndash; {{ data.event.endsAt | date: 'medium' }}</p>
+  <h1 class="mt-2 text-3xl font-bold text-gray-900">{{ data.event.title }}</h1>
+  <p class="venue mt-1 text-gray-600">{{ data.event.venueName }}, {{ data.event.city }}</p>
+  <p class="dates mt-1 text-gray-600">
+    {{ data.event.startsAt | date: 'medium' }} &ndash; {{ data.event.endsAt | date: 'medium' }}
+  </p>
 
-  <ul class="legend">
-    <li><span class="swatch available"></span> Available</li>
-    <li><span class="swatch held"></span> Held</li>
-    <li><span class="swatch booked"></span> Booked</li>
+  <ul class="legend mt-4 flex list-none gap-6 p-0">
+    <li class="flex items-center gap-2">
+      <span class="swatch available inline-block h-3.5 w-3.5 rounded-sm bg-green-500"></span> Available
+    </li>
+    <li class="flex items-center gap-2">
+      <span class="swatch held inline-block h-3.5 w-3.5 rounded-sm bg-amber-500"></span> Held
+    </li>
+    <li class="flex items-center gap-2">
+      <span class="swatch booked inline-block h-3.5 w-3.5 rounded-sm bg-gray-400"></span> Booked
+    </li>
   </ul>
 
   @if (holdError; as holdErr) {
-    <p class="hold-error">{{ holdErr }}</p>
+    <p class="hold-error mt-4 font-semibold text-red-600">{{ holdErr }}</p>
   }
 
   @for (section of data.sections; track section.name) {
-    <section class="seat-section">
-      <h2>{{ section.name }}</h2>
+    <section class="seat-section mt-8">
+      <h2 class="mb-2 text-xl font-semibold text-gray-900">{{ section.name }}</h2>
       <svg
         [attr.viewBox]="'0 0 ' + section.viewBoxWidth + ' ' + section.viewBoxHeight"
         [attr.width]="section.viewBoxWidth"
-        [attr.height]="section.viewBoxHeight">
+        [attr.height]="section.viewBoxHeight"
+        class="block">
         @for (seat of section.seats; track seat.id) {
           <rect
             [attr.x]="seatX(seat)"
@@ -39,5 +48,5 @@
     </section>
   }
 } @else {
-  <p>Loading seat map&hellip;</p>
+  <p class="mt-6 text-gray-500">Loading seat map&hellip;</p>
 }
