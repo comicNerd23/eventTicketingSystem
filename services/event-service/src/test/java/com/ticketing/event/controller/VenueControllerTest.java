@@ -43,6 +43,7 @@ class VenueControllerTest {
         section.setName("Floor");
         section.setRows(10);
         section.setSeatsPerRow(20);
+        section.setPriceGbp(89.5);
         req.setSections(List.of(section));
 
         mvc.perform(post("/venues")
@@ -80,6 +81,7 @@ class VenueControllerTest {
         s.setName("Floor");
         s.setRows(10);
         s.setSeatsPerRow(20);
+        s.setPriceGbp(89.5);
         v.setSections(List.of(s));
         return v;
     }

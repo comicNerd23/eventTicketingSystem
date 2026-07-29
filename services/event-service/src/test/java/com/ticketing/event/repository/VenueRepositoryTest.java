@@ -40,6 +40,7 @@ class VenueRepositoryTest {
         section.setName("Floor");
         section.setRows(10);
         section.setSeatsPerRow(20);
+        section.setPriceGbp(89.5);
         venue.setSections(List.of(section));
 
         Venue saved = venueRepository.save(venue);

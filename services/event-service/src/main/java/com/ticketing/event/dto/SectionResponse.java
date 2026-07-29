@@ -9,6 +9,7 @@ public class SectionResponse {
     private String name;
     private int rows;
     private int seatsPerRow;
+    private Double priceGbp;
 
     public static SectionResponse from(Section s) {
         SectionResponse r = new SectionResponse();
@@ -16,6 +17,7 @@ public class SectionResponse {
         r.name = s.getName();
         r.rows = s.getRows();
         r.seatsPerRow = s.getSeatsPerRow();
+        r.priceGbp = s.getPriceGbp();
         return r;
     }
 
@@ -23,4 +25,5 @@ public class SectionResponse {
     public String getName() { return name; }
     public int getRows() { return rows; }
     public int getSeatsPerRow() { return seatsPerRow; }
+    public Double getPriceGbp() { return priceGbp; }
 }

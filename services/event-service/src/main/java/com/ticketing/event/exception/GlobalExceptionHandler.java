@@ -24,6 +24,12 @@ public class GlobalExceptionHandler {
             .body(new ErrorResponse(404, "Not Found", e.getMessage(), req.getRequestURI()));
     }
 
+    @ExceptionHandler(BookingServiceUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleBookingServiceUnavailable(BookingServiceUnavailableException e, HttpServletRequest req) {
+        return ResponseEntity.status(503)
+            .body(new ErrorResponse(503, "Service Unavailable", e.getMessage(), req.getRequestURI()));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException e, HttpServletRequest req) {
         String message = e.getBindingResult().getFieldErrors().stream()

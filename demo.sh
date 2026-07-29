@@ -13,13 +13,11 @@ BASE="http://localhost:8082"
 EVENT_BASE="http://localhost:8081"
 GATEWAY_BASE="http://localhost:8080"
 USER_ID="00000000-0000-0000-0000-000000000099"
-SEAT_ID="$(powershell -Command '[System.Guid]::NewGuid().ToString()' | tr -d '\r')"
 
 echo ""
 echo "========================================="
 echo "  Event Ticketing — Happy Path Demo"
 echo "========================================="
-echo "Seat ID  : $SEAT_ID"
 echo ""
 
 # ── Step 0a: event-service — create a venue ─────────────────────────────────
@@ -32,8 +30,8 @@ VENUE_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$EVENT_BASE/venues" \
     "city": "London",
     "country": "UK",
     "sections": [
-      {"name": "Floor", "rows": 10, "seatsPerRow": 20},
-      {"name": "Upper Tier", "rows": 15, "seatsPerRow": 30}
+      {"name": "Floor", "rows": 10, "seatsPerRow": 20, "priceGbp": 89.50},
+      {"name": "Upper Tier", "rows": 15, "seatsPerRow": 30, "priceGbp": 45.00}
     ]
   }')
 
@@ -91,8 +89,32 @@ curl -s "$EVENT_BASE/events?city=London"
 echo ""
 echo ""
 echo "    NOTE: booking-service below calls event-service to validate \$CREATED_EVENT_ID"
-echo "    and fetch its real title. Seat-level data (seatId/seatLabel/priceGbp) is"
-echo "    still client-supplied — event-service has no per-seat model yet."
+echo "    and fetch its real title."
+echo ""
+
+# ── Step 0e: event-service — fetch the generated seat map, pick a real seat ──
+echo ">>> 0e. GET /events/$CREATED_EVENT_ID/seats (event-service)"
+echo "    Seats were generated automatically when the event was created (Floor 10x20"
+echo "    + Upper Tier 15x30 = 650). Picking a real seat instead of a made-up UUID."
+SEAT_MAP_RESPONSE=$(curl -s -w "\n%{http_code}" "$EVENT_BASE/events/$CREATED_EVENT_ID/seats")
+HTTP_CODE=$(echo "$SEAT_MAP_RESPONSE" | tail -1)
+SEAT_MAP_BODY=$(echo "$SEAT_MAP_RESPONSE" | head -1)
+echo "HTTP $HTTP_CODE"
+
+if [ "$HTTP_CODE" != "200" ]; then
+  echo "ERROR: Expected 200, got $HTTP_CODE"
+  exit 1
+fi
+
+SEAT_COUNT=$(echo "$SEAT_MAP_BODY" | grep -o '"id":"[^"]*"' | wc -l)
+SEAT_ID=$(echo "$SEAT_MAP_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+echo ""
+if [ "$SEAT_COUNT" -eq 650 ]; then
+  echo "  SUCCESS — 650 seats generated, all AVAILABLE."
+else
+  echo "  WARN: Expected 650 seats, got $SEAT_COUNT"
+fi
+echo "    Seat ID  : $SEAT_ID"
 echo ""
 
 # ── Step 1: Hold the seat ────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import com.ticketing.booking.client.EventInfo;
 import com.ticketing.booking.client.EventServiceClient;
 import com.ticketing.booking.domain.Booking;
 import com.ticketing.booking.domain.BookingStatus;
+import com.ticketing.booking.dto.ActiveSeatResponse;
 import com.ticketing.booking.dto.BookingResponse;
 import com.ticketing.booking.dto.ConfirmBookingRequest;
 import com.ticketing.booking.dto.HoldSeatRequest;
@@ -96,6 +97,14 @@ public class BookingService {
         log.info("Payment initiated: booking={}", bookingId);
 
         return BookingResponse.from(booking);
+    }
+
+    public List<ActiveSeatResponse> getActiveSeatsForEvent(UUID eventId) {
+        return bookingRepository.findByEventIdAndStatusIn(eventId,
+                List.of(BookingStatus.HELD, BookingStatus.PAYMENT_PENDING, BookingStatus.CONFIRMED))
+            .stream()
+            .map(ActiveSeatResponse::from)
+            .toList();
     }
 
     public BookingResponse getBooking(UUID bookingId) {

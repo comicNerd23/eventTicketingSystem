@@ -193,6 +193,32 @@ class BookingControllerTest {
             .andExpect(jsonPath("$.message").value(containsString("PAYMENT_PENDING")));
     }
 
+    // ── GET /bookings/events/{eventId}/active-seats ───────────────────────────
+
+    @Test
+    void getActiveSeatsForEvent_returnsList() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        Booking booking = aBooking(UUID.randomUUID(), BookingStatus.HELD);
+        given(bookingService.getActiveSeatsForEvent(eventId))
+            .willReturn(java.util.List.of(com.ticketing.booking.dto.ActiveSeatResponse.from(booking)));
+
+        mvc.perform(get("/bookings/events/{eventId}/active-seats", eventId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].seatId").value(booking.getSeatId().toString()))
+            .andExpect(jsonPath("$[0].status").value("HELD"));
+    }
+
+    @Test
+    void getActiveSeatsForEvent_whenNoneActive_returnsEmptyList() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        given(bookingService.getActiveSeatsForEvent(eventId)).willReturn(java.util.List.of());
+
+        mvc.perform(get("/bookings/events/{eventId}/active-seats", eventId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$").isArray())
+            .andExpect(jsonPath("$").isEmpty());
+    }
+
     // ── GET /bookings/{id} ────────────────────────────────────────────────────
 
     @Test

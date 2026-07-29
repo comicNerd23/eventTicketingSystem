@@ -1,5 +1,6 @@
 package com.ticketing.booking.controller;
 
+import com.ticketing.booking.dto.ActiveSeatResponse;
 import com.ticketing.booking.dto.BookingResponse;
 import com.ticketing.booking.dto.ConfirmBookingRequest;
 import com.ticketing.booking.dto.HoldSeatRequest;
@@ -8,6 +9,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -40,6 +42,11 @@ public class BookingController {
             @PathVariable UUID bookingId,
             @Valid @RequestBody ConfirmBookingRequest request) {
         return ResponseEntity.ok(bookingService.confirmBooking(bookingId, userId, request));
+    }
+
+    @GetMapping("/events/{eventId}/active-seats")
+    public ResponseEntity<List<ActiveSeatResponse>> getActiveSeatsForEvent(@PathVariable UUID eventId) {
+        return ResponseEntity.ok(bookingService.getActiveSeatsForEvent(eventId));
     }
 
     @PostMapping("/{bookingId}/cancel")

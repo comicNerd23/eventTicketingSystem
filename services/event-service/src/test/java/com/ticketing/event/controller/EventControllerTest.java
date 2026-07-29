@@ -7,6 +7,9 @@ import com.ticketing.event.domain.EventStatus;
 import com.ticketing.event.dto.CreateEventRequest;
 import com.ticketing.event.dto.EventPageResponse;
 import com.ticketing.event.dto.EventResponse;
+import com.ticketing.event.dto.SeatResponse;
+import com.ticketing.event.domain.Seat;
+import com.ticketing.event.domain.SeatStatus;
 import com.ticketing.event.exception.EventNotFoundException;
 import com.ticketing.event.exception.VenueNotFoundException;
 import com.ticketing.event.service.EventService;
@@ -108,6 +111,35 @@ class EventControllerTest {
         given(eventService.getEvent(eventId)).willThrow(new EventNotFoundException(eventId));
 
         mvc.perform(get("/events/{id}", eventId))
+            .andExpect(status().isNotFound());
+    }
+
+    // ── GET /events/{id}/seats ───────────────────────────────────────────────
+
+    @Test
+    void getSeatMap_whenExists_returns200WithSeats() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        Seat seat = new Seat();
+        seat.setId(UUID.randomUUID());
+        seat.setSectionName("Floor");
+        seat.setRowNumber(1);
+        seat.setSeatNumber(1);
+        seat.setLabel("Floor-R1-S1");
+        seat.setPriceGbp(89.5);
+        given(eventService.getSeatMap(eventId)).willReturn(List.of(SeatResponse.from(seat, SeatStatus.AVAILABLE)));
+
+        mvc.perform(get("/events/{id}/seats", eventId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].label").value("Floor-R1-S1"))
+            .andExpect(jsonPath("$[0].status").value("AVAILABLE"));
+    }
+
+    @Test
+    void getSeatMap_whenEventNotFound_returns404() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        given(eventService.getSeatMap(eventId)).willThrow(new EventNotFoundException(eventId));
+
+        mvc.perform(get("/events/{id}/seats", eventId))
             .andExpect(status().isNotFound());
     }
 

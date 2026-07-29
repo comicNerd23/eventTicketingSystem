@@ -21,6 +21,10 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: false
 
+booking:
+  service:
+    base-url: http://localhost:8082
+
 logging:
   level:
     com.ticketing: DEBUG

@@ -40,6 +40,7 @@ public class VenueService {
             section.setName(sr.getName());
             section.setRows(sr.getRows());
             section.setSeatsPerRow(sr.getSeatsPerRow());
+            section.setPriceGbp(sr.getPriceGbp());
             return section;
         }).collect(Collectors.toList());
 

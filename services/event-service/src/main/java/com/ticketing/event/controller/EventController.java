@@ -4,6 +4,7 @@ import com.ticketing.event.domain.EventCategory;
 import com.ticketing.event.dto.CreateEventRequest;
 import com.ticketing.event.dto.EventPageResponse;
 import com.ticketing.event.dto.EventResponse;
+import com.ticketing.event.dto.SeatResponse;
 import com.ticketing.event.service.EventService;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -11,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -33,6 +35,11 @@ public class EventController {
     @GetMapping("/{eventId}")
     public ResponseEntity<EventResponse> getEvent(@PathVariable UUID eventId) {
         return ResponseEntity.ok(eventService.getEvent(eventId));
+    }
+
+    @GetMapping("/{eventId}/seats")
+    public ResponseEntity<List<SeatResponse>> getSeatMap(@PathVariable UUID eventId) {
+        return ResponseEntity.ok(eventService.getSeatMap(eventId));
     }
 
     @GetMapping

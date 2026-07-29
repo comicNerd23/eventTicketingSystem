@@ -81,6 +81,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ticketing_events
       SPRING_DATASOURCE_USERNAME: ticketing
       SPRING_DATASOURCE_PASSWORD: ticketing
+      BOOKING_SERVICE_BASE_URL: http://booking-service:8082
     restart: on-failure
 
   payment-service:

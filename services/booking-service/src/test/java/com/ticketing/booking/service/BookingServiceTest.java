@@ -365,6 +365,36 @@ class BookingServiceTest {
         then(eventPublisher).shouldHaveNoInteractions();
     }
 
+    // ── getActiveSeatsForEvent ────────────────────────────────────────────────
+
+    @Test
+    void getActiveSeatsForEvent_returnsHeldPaymentPendingAndConfirmedBookings() {
+        Booking held = aBooking(UUID.randomUUID(), UUID.randomUUID(), BookingStatus.HELD);
+        Booking confirmed = aBooking(UUID.randomUUID(), UUID.randomUUID(), BookingStatus.CONFIRMED);
+        given(bookingRepository.findByEventIdAndStatusIn(eventId,
+            List.of(BookingStatus.HELD, BookingStatus.PAYMENT_PENDING, BookingStatus.CONFIRMED)))
+            .willReturn(List.of(held, confirmed));
+
+        var result = bookingService.getActiveSeatsForEvent(eventId);
+
+        assertThat(result).hasSize(2);
+        assertThat(result).anySatisfy(r -> {
+            assertThat(r.getSeatId()).isEqualTo(held.getSeatId());
+            assertThat(r.getStatus()).isEqualTo(BookingStatus.HELD);
+        });
+        assertThat(result).anySatisfy(r -> {
+            assertThat(r.getSeatId()).isEqualTo(confirmed.getSeatId());
+            assertThat(r.getStatus()).isEqualTo(BookingStatus.CONFIRMED);
+        });
+    }
+
+    @Test
+    void getActiveSeatsForEvent_whenNoneActive_returnsEmptyList() {
+        given(bookingRepository.findByEventIdAndStatusIn(eq(eventId), anyList())).willReturn(List.of());
+
+        assertThat(bookingService.getActiveSeatsForEvent(eventId)).isEmpty();
+    }
+
     // ── getBooking ────────────────────────────────────────────────────────────
 
     @Test

@@ -24,6 +24,9 @@ public class Section {
     @Column(nullable = false)
     private int seatsPerRow;
 
+    @Column(nullable = false)
+    private Double priceGbp;
+
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
     public Venue getVenue() { return venue; }
@@ -34,4 +37,6 @@ public class Section {
     public void setRows(int rows) { this.rows = rows; }
     public int getSeatsPerRow() { return seatsPerRow; }
     public void setSeatsPerRow(int seatsPerRow) { this.seatsPerRow = seatsPerRow; }
+    public Double getPriceGbp() { return priceGbp; }
+    public void setPriceGbp(Double priceGbp) { this.priceGbp = priceGbp; }
 }
