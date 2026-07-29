@@ -124,6 +124,8 @@ Spring Boot 4.1.0 / Java 25, real Postgres persistence (own database `ticketing_
 
 This closes out the multi-slice arc started to give notification-service real triggers instead of manually-published test events — all four AsyncAPI-documented notification-service events are now wired end-to-end from real producers through to real consumers.
 
+**Next up:** retire `payment-simulator` and wire payment-service into the live saga (deferred since payment-service's Slice 1 — see note above), deepen event-service (seat map generation, blocking full seat-level binding), or start `api-gateway`.
+
 ### Remaining services (not yet scoped into slices)
 api-gateway
 
