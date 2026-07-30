@@ -2,6 +2,7 @@ package com.ticketing.payment.service;
 
 import com.ticketing.payment.client.ChargeResult;
 import com.ticketing.payment.client.PaymentGateway;
+import com.ticketing.payment.client.RefundResult;
 import com.ticketing.payment.domain.Payment;
 import com.ticketing.payment.domain.PaymentStatus;
 import com.ticketing.payment.dto.PaymentResponse;
@@ -97,5 +98,26 @@ public class PaymentService {
             }
             default -> throw new UnsupportedWebhookEventException(request.getType());
         }
+    }
+
+    @Transactional
+    public void refundForCancelledBooking(UUID bookingId) {
+        Payment payment = paymentRepository.findByBookingId(bookingId).orElse(null);
+        if (payment == null) {
+            log.debug("No payment found for cancelled booking {} — nothing to refund", bookingId);
+            return;
+        }
+
+        if (payment.getStatus() != PaymentStatus.SUCCEEDED) {
+            log.info("Payment {} for booking {} is {} — skipping refund", payment.getId(), bookingId, payment.getStatus());
+            return;
+        }
+
+        RefundResult refund = paymentGateway.refund(payment.getStripePaymentIntentId(), payment.getAmountGbp());
+        payment.setStatus(PaymentStatus.REFUNDED);
+        payment.setUpdatedAt(Instant.now());
+        paymentRepository.save(payment);
+
+        log.info("Payment REFUNDED: booking={} payment={} refund={}", bookingId, payment.getId(), refund.stripeRefundId());
     }
 }

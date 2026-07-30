@@ -20,4 +20,11 @@ public class StubPaymentGateway implements PaymentGateway {
             bookingId, amountGbp, stripePaymentMethodId, fakeId);
         return new ChargeResult(fakeId);
     }
+
+    @Override
+    public RefundResult refund(String stripePaymentIntentId, double amountGbp) {
+        String fakeId = "re_stub_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        log.info("[STUB] Simulated Refund for PaymentIntent {} (£{}) -> {}", stripePaymentIntentId, amountGbp, fakeId);
+        return new RefundResult(fakeId);
+    }
 }

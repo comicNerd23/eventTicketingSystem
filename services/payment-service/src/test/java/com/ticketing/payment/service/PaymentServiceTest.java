@@ -2,6 +2,7 @@ package com.ticketing.payment.service;
 
 import com.ticketing.payment.client.ChargeResult;
 import com.ticketing.payment.client.PaymentGateway;
+import com.ticketing.payment.client.RefundResult;
 import com.ticketing.payment.domain.Payment;
 import com.ticketing.payment.domain.PaymentStatus;
 import com.ticketing.payment.dto.PaymentResponse;
@@ -127,6 +128,53 @@ class PaymentServiceTest {
 
         assertThatThrownBy(() -> paymentService.handleWebhook(webhookRequest("charge.refunded", "pi_test_4", null)))
             .isInstanceOf(UnsupportedWebhookEventException.class);
+    }
+
+    // ── refundForCancelledBooking ────────────────────────────────────────────
+
+    @Test
+    void refundForCancelledBooking_whenNoPaymentFound_isNoOp() {
+        given(paymentRepository.findByBookingId(bookingId)).willReturn(Optional.empty());
+
+        paymentService.refundForCancelledBooking(bookingId);
+
+        then(paymentGateway).shouldHaveNoInteractions();
+        then(paymentRepository).should(never()).save(any());
+    }
+
+    @Test
+    void refundForCancelledBooking_whenPaymentStillPending_isNoOp() {
+        Payment payment = aPayment(bookingId, "pi_test_7", PaymentStatus.PENDING);
+        given(paymentRepository.findByBookingId(bookingId)).willReturn(Optional.of(payment));
+
+        paymentService.refundForCancelledBooking(bookingId);
+
+        then(paymentGateway).shouldHaveNoInteractions();
+        then(paymentRepository).should(never()).save(any());
+    }
+
+    @Test
+    void refundForCancelledBooking_whenAlreadyRefunded_isIdempotentNoOp() {
+        Payment payment = aPayment(bookingId, "pi_test_8", PaymentStatus.REFUNDED);
+        given(paymentRepository.findByBookingId(bookingId)).willReturn(Optional.of(payment));
+
+        paymentService.refundForCancelledBooking(bookingId);
+
+        then(paymentGateway).shouldHaveNoInteractions();
+        then(paymentRepository).should(never()).save(any());
+    }
+
+    @Test
+    void refundForCancelledBooking_whenSucceeded_refundsViaGatewayAndTransitionsToRefunded() {
+        Payment payment = aPayment(bookingId, "pi_test_9", PaymentStatus.SUCCEEDED);
+        given(paymentRepository.findByBookingId(bookingId)).willReturn(Optional.of(payment));
+        given(paymentGateway.refund("pi_test_9", 89.5)).willReturn(new RefundResult("re_stub_xyz"));
+
+        paymentService.refundForCancelledBooking(bookingId);
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        then(paymentGateway).should().refund("pi_test_9", 89.5);
+        then(paymentRepository).should().save(payment);
     }
 
     // ── getPayment / getPaymentByBooking ─────────────────────────────────────

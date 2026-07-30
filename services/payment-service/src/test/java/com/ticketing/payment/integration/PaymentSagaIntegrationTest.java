@@ -126,6 +126,33 @@ class PaymentSagaIntegrationTest {
         then(eventPublisher).should(never()).publishPaymentCompleted(any());
     }
 
+    @Test
+    void bookingCancelled_afterPaymentSucceeded_refundsAndTransitionsToRefunded() throws Exception {
+        kafkaTemplate.send("payment-initiated", bookingId.toString(), paymentInitiatedEvent(bookingId, userId));
+
+        await().atMost(10, SECONDS).untilAsserted(() ->
+            assertThat(paymentRepository.findByBookingId(bookingId)).isPresent());
+
+        String stripePaymentIntentId = paymentRepository.findByBookingId(bookingId).orElseThrow()
+            .getStripePaymentIntentId();
+
+        ResponseEntity<Void> webhookResp = restTemplate.postForEntity(
+            "/payments/webhook",
+            webhookEntity("payment_intent.succeeded", stripePaymentIntentId, null),
+            Void.class);
+        assertThat(webhookResp.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        await().atMost(10, SECONDS).untilAsserted(() ->
+            assertThat(paymentRepository.findByBookingId(bookingId).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.SUCCEEDED));
+
+        kafkaTemplate.send("booking-cancelled", bookingId.toString(), bookingCancelledEvent(bookingId, userId));
+
+        await().atMost(10, SECONDS).untilAsserted(() ->
+            assertThat(paymentRepository.findByBookingId(bookingId).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.REFUNDED));
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private String paymentInitiatedEvent(UUID bookingId, UUID userId) throws Exception {
@@ -138,6 +165,24 @@ class PaymentSagaIntegrationTest {
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("eventId", UUID.randomUUID().toString());
         envelope.put("eventType", "payment-initiated");
+        envelope.put("occurredAt", java.time.Instant.now().toString());
+        envelope.put("payload", payload);
+
+        return objectMapper.writeValueAsString(envelope);
+    }
+
+    private String bookingCancelledEvent(UUID bookingId, UUID userId) throws Exception {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("bookingId", bookingId.toString());
+        payload.put("userId", userId.toString());
+        payload.put("userEmail", "demo@ticketing.com");
+        payload.put("seatId", UUID.randomUUID().toString());
+        payload.put("eventId", UUID.randomUUID().toString());
+        payload.put("amountGbp", 89.5);
+
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("eventId", UUID.randomUUID().toString());
+        envelope.put("eventType", "booking-cancelled");
         envelope.put("occurredAt", java.time.Instant.now().toString());
         envelope.put("payload", payload);
 

@@ -462,3 +462,27 @@ else
   echo "  WARN: Expected 201, got $HTTP_CODE"
 fi
 echo ""
+
+# ── Step 16: payment-service — real refund after booking-cancelled ───────────
+echo ">>> 16. GET /payments/bookings/$BOOKING_ID (payment-service, should be REFUNDED)"
+echo "    Step 10 cancelled this CONFIRMED booking, publishing booking-cancelled. payment-service's"
+echo "    own payment for it was already SUCCEEDED (Steps 6-7's independent webhook call), so its"
+echo "    new booking-cancelled consumer should have issued a stub refund and transitioned it here."
+for i in 1 2 3 4 5; do
+  REFUND_RESPONSE=$(curl -s -w "\n%{http_code}" "$PAYMENT_BASE/payments/bookings/$BOOKING_ID")
+  HTTP_CODE=$(echo "$REFUND_RESPONSE" | tail -1)
+  if [ "$HTTP_CODE" = "200" ]; then break; fi
+  sleep 1
+done
+REFUND_BODY=$(echo "$REFUND_RESPONSE" | head -1)
+echo "HTTP $HTTP_CODE"
+echo "$REFUND_BODY"
+
+REFUND_STATUS=$(echo "$REFUND_BODY" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+echo ""
+if [ "$REFUND_STATUS" = "REFUNDED" ]; then
+  echo "  SUCCESS — payment-service refunded the payment after booking-cancelled."
+else
+  echo "  WARN: Expected status=REFUNDED, got $REFUND_STATUS"
+fi
+echo ""

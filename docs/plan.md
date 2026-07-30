@@ -69,9 +69,19 @@ Spring Boot 4.1.0 / Java 25, real Postgres persistence (own database `ticketing_
 
 **Not wired into the live saga yet**: `payment-simulator` still plays that role (unchanged, per explicit decision). Both now consume `payment-initiated` under distinct consumer groups — `payment-simulator` kept its existing groupId (`payment-service-group`, the literal the AsyncAPI spec documents for the real service), and `payment-service` was given `payment-service-consumer-group` instead, since giving both the same literal string would have made Kafka split partitions between them rather than deliver to both (a real collision, not just a naming nit). This means `specs/asyncapi/kafka-events.yaml`'s documented groupId for `payment-service` is temporarily held by `payment-simulator` — a known, deliberate inaccuracy while both coexist; reconcile once `payment-simulator` is retired.
 
-Deferred to later slices: wiring payment-service into the real booking saga (replacing payment-simulator — must also stop payment-simulator at that point, or booking-service will receive `payment-completed`/`payment-failed` from both), real Stripe SDK integration behind `PaymentGateway` (webhook signature verification, real `PaymentIntent` creation), `charge.refunded`/`REFUNDED` status and the `booking-cancelled` consumer.
+Deferred to later slices: wiring payment-service into the real booking saga (replacing payment-simulator — must also stop payment-simulator at that point, or booking-service will receive `payment-completed`/`payment-failed` from both), real Stripe SDK integration behind `PaymentGateway` (webhook signature verification, real `PaymentIntent` creation).
 
 Also fixed while verifying end-to-end: a pre-existing Kafka partition-count race in `docker/docker-compose.yml`, unrelated to payment-service itself but only surfaced by adding a second independent consumer. `booking-service`'s `KafkaConfig` declares `NewTopic` beans requesting 3 partitions, but on a fresh broker a consumer (`payment-simulator` or `payment-service`) can auto-create the topic first via `KAFKA_AUTO_CREATE_TOPICS_ENABLE`, getting the broker's default of 1 partition; `KafkaAdmin` then only *increases* it to 3 once `booking-service` starts, and already-subscribed consumers stay pinned to partition 0 until their next metadata refresh (default 5 minutes) — so a booking whose key hashes to partition 1 or 2 would never be seen by a consumer stuck on partition 0. Fixed by setting `KAFKA_NUM_PARTITIONS: 3` as the broker's default, so whoever auto-creates the topic first gets the right partition count immediately — no race window at all.
+
+### payment-service — booking-cancelled consumer (real refunds), done
+
+Closes the last gap the AsyncAPI spec already documented: `booking-cancelled` was specified as consumed by `payment-service`, `notification-service`, and `waitlist-service`, but only the latter two were actually implemented until now. `PaymentStatus.REFUNDED` already existed in the enum (added anticipating this), unused until this slice.
+
+`PaymentGateway` gained a `refund(stripePaymentIntentId, amountGbp)` method (mirrors the existing `createCharge`; `StubPaymentGateway` fakes a `re_stub_...` id, no real Stripe SDK, same as the rest of this gateway). New `PaymentService.refundForCancelledBooking(bookingId)`: looks itself up by `bookingId` (`booking-cancelled`'s payload has no `paymentId` — booking-service doesn't own payment data, as already noted when that event was first built) — no payment found, or found but not `SUCCEEDED` (still `PENDING`, or already `FAILED`/`REFUNDED`), is a silent idempotent no-op; only a `SUCCEEDED` payment actually gets refunded and transitioned to `REFUNDED`. The refund amount comes from payment-service's own stored `Payment.amountGbp`, not the event payload's copy — payment-service is the source of truth for what it actually charged. New `BookingCancelledConsumer` reuses the existing `payment-service-consumer-group` (one consumer group per service, matching `notification-service`'s established pattern) — no collision risk on this topic since `payment-simulator` doesn't consume `booking-cancelled` at all.
+
+19 new/updated tests: `PaymentServiceTest` (+4 — no payment found, still `PENDING`, already `REFUNDED`, `SUCCEEDED` → refunds and transitions), `PaymentSagaIntegrationTest` (+1, real Kafka+Postgres via Testcontainers — seeds a real `SUCCEEDED` payment via the existing webhook flow, publishes a real `booking-cancelled`, awaits `REFUNDED`). Wired into `demo.sh` as a new **Step 16** (appended at the end rather than renumbering 11-15, since it only depends on Step 10's cancel having already happened): confirms the same payment Steps 6-7 drove to `SUCCEEDED` is `REFUNDED` after Step 10's cancel — verified for real against the live Docker stack, not just tests.
+
+Remaining payment-service gap: still not wired into the live saga (`payment-simulator` unchanged), and no real Stripe SDK — both already tracked above.
 
 ### notification-service — Slice 1 done
 
@@ -242,7 +252,7 @@ Styling/architecture decision documented as `docs/adr/ADR-009-live-seat-updates.
 
 **Known limitation, documented rather than hidden** (see ADR-009 Consequences): no reconnect/backoff if the WebSocket connection drops — a real production gap accepted at this project's scope.
 
-**Next up:** retire `payment-simulator` and wire payment-service into the live saga, add a `booking-cancelled` consumer to payment-service for real refunds.
+**Next up:** retire `payment-simulator` and wire payment-service into the live saga.
 
 ---
 
