@@ -25,26 +25,30 @@
 
   @for (section of data.sections; track section.name) {
     <section class="seat-section mt-8">
-      <h2 class="mb-2 text-xl font-semibold text-gray-900">{{ section.name }}</h2>
-      <svg
-        [attr.viewBox]="'0 0 ' + section.viewBoxWidth + ' ' + section.viewBoxHeight"
-        [attr.width]="section.viewBoxWidth"
-        [attr.height]="section.viewBoxHeight"
-        class="block">
-        @for (seat of section.seats; track seat.id) {
-          <rect
-            [attr.x]="seatX(seat)"
-            [attr.y]="seatY(seat)"
-            [attr.width]="cellSize - 4"
-            [attr.height]="cellSize - 4"
-            [attr.rx]="3"
-            [attr.fill]="seatColor(seat.status)"
-            [attr.class]="seatClass(seat)"
-            (click)="selectSeat(seat)">
-            <title>{{ seat.label }} &ndash; &pound;{{ seat.priceGbp }} &ndash; {{ seat.status }}</title>
-          </rect>
-        }
-      </svg>
+      <h2 class="mb-2 text-xl font-semibold text-gray-900">
+        {{ section.name }} <span class="font-normal text-gray-500">&mdash; &pound;{{ section.pricePerSeat }}</span>
+      </h2>
+      <div class="overflow-x-auto">
+        <svg
+          [attr.viewBox]="'0 0 ' + section.viewBoxWidth + ' ' + section.viewBoxHeight"
+          [attr.width]="section.viewBoxWidth"
+          [attr.height]="section.viewBoxHeight"
+          class="block">
+          @for (seat of section.seats; track seat.id) {
+            <rect
+              [attr.x]="seatX(seat)"
+              [attr.y]="seatY(seat)"
+              [attr.width]="cellSize - 4"
+              [attr.height]="cellSize - 4"
+              [attr.rx]="3"
+              [attr.fill]="seatColor(seat.status)"
+              [attr.class]="seatClass(seat)"
+              (click)="selectSeat(seat)">
+              <title>{{ seat.label }} &ndash; &pound;{{ seat.priceGbp }} &ndash; {{ seat.status }}</title>
+            </rect>
+          }
+        </svg>
+      </div>
     </section>
   }
 } @else {

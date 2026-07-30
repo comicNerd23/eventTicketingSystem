@@ -146,6 +146,28 @@ describe('SeatMapComponent', () => {
     expect(bookedRect?.getAttribute('fill')).toBe('#9e9e9e');
   });
 
+  it('renders each section heading with its per-seat price', async () => {
+    const fixture = await setup({});
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const headings = Array.from(compiled.querySelectorAll('h2')).map((h) => h.textContent);
+    expect(headings.some((text) => text?.includes('Floor') && text?.includes('£120'))).toBeTrue();
+    expect(headings.some((text) => text?.includes('Upper Tier') && text?.includes('£60'))).toBeTrue();
+  });
+
+  it('wraps each section grid in a horizontally-scrollable container so the page never overflows', async () => {
+    const fixture = await setup({});
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const scrollContainers = compiled.querySelectorAll('.overflow-x-auto');
+    expect(scrollContainers.length).toBe(2); // one per section
+    scrollContainers.forEach((container) => {
+      expect(container.querySelector('svg')).toBeTruthy();
+    });
+  });
+
   it('clicking an AVAILABLE seat holds it and navigates to the booking page', async () => {
     const mockBooking: Booking = {
       id: '99999999-9999-9999-9999-999999999999',

@@ -13,6 +13,7 @@ export const CELL_SIZE = 22;
 export interface SeatSection {
   name: string;
   seats: Seat[];
+  pricePerSeat: number;
   viewBoxWidth: number;
   viewBoxHeight: number;
 }
@@ -47,6 +48,7 @@ function groupBySection(seats: Seat[]): SeatSection[] {
   return Array.from(bySectionName.entries()).map(([name, sectionSeats]) => ({
     name,
     seats: sectionSeats,
+    pricePerSeat: sectionSeats[0]?.priceGbp ?? 0,
     viewBoxWidth: Math.max(...sectionSeats.map((s) => s.seatNumber)) * CELL_SIZE,
     viewBoxHeight: Math.max(...sectionSeats.map((s) => s.rowNumber)) * CELL_SIZE
   }));

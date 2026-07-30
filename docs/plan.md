@@ -302,6 +302,16 @@ No new backend logic, so no new tests — the existing `payment-service` suite (
 
 The stored `Event.availableSeats` database column is now vestigial (still written once at creation, never read for any response) — left in place rather than migrated away, since removing it is an unrelated schema concern out of scope for this fix; noted in ADR-010 so it doesn't read as an oversight later.
 
+### Angular frontend — seat map polish (price display + mobile viewport fix), done
+
+Last item from the frontend-polish menu. Price display needed no new API call: `EventService.generateSeats` already sets `seat.setPriceGbp(section.getPriceGbp())` on the backend, so every seat within a section already shares that section's price — `SeatMapComponent`'s existing `groupBySection` just reads `sectionSeats[0].priceGbp` and a new `SeatSection.pricePerSeat` field renders it next to each section heading.
+
+The mobile-viewport check surfaced a real, confirmed bug, not a hypothetical: each section's `<svg>` had explicit pixel `width`/`height` attributes (440px for "Floor", 660px for "Upper Tier" at this project's real demo venue) which don't shrink to fit a narrower parent — combined with the page's `max-w-3xl px-4` content wrapper having no horizontal-scroll containment on its children, the **whole page** gained horizontal scroll on a real mobile viewport, not just the seat grid. Fixed by wrapping each section's `<svg>` in an `overflow-x-auto` container — the same "wide content scrolls in its own box, the page body never does" idiom used elsewhere — rather than shrinking seats to fit (which would make them illegible/hard to tap on a small screen; real ticketing apps scroll or zoom a seat map rather than shrink it).
+
+32 frontend tests passing (up from 30): section headings render their price, and each section's SVG is structurally wrapped in an `.overflow-x-auto` container. **Real verification, not just tests**: screenshotted the real seat map at desktop width (confirms real prices — "Floor — £89.5", "Upper Tier — £45" — against live backend data), then precisely checked the actual bug at a true 390px mobile viewport via Chrome DevTools Protocol device emulation (`Emulation.setDeviceMetricsOverride`, since the `--window-size` CLI flag doesn't map 1:1 to CSS viewport width in this session's headless Chrome) — confirmed `document.documentElement.scrollWidth (390) === window.innerWidth (390)`, i.e. genuinely zero page-level horizontal overflow, while each section's own scrollable box correctly contains its wider content (440px/660px content in a 358px box) instead of leaking out. Screenshotted the same real mobile view for visual confirmation (title wraps normally, a scrollbar is visible under the Floor section).
+
+**This closes out every item from the frontend-polish menu** — remaining known-open items are the deliberately-deferred backend stubs (real Stripe SDK, real email provider) and Phase 5 (DevOps), not yet started.
+
 ---
 
 ## Outstanding housekeeping
