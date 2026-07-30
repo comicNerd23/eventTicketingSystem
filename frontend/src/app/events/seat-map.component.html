@@ -48,5 +48,9 @@
     </section>
   }
 } @else {
-  <p class="mt-6 text-gray-500">Loading seat map&hellip;</p>
+  @if (loadError(); as err) {
+    <p class="mt-6 font-semibold text-red-600">{{ err }}</p>
+  } @else {
+    <p class="mt-6 text-gray-500">Loading seat map&hellip;</p>
+  }
 }

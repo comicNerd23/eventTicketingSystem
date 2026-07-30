@@ -91,12 +91,15 @@ describe('SeatMapComponent', () => {
     (window as unknown as { WebSocket: unknown }).WebSocket = originalWebSocket;
   });
 
-  async function setup(bookingApiStub: Partial<BookingApiService>) {
+  async function setup(
+    bookingApiStub: Partial<BookingApiService>,
+    eventsApiOverride: Partial<EventsApiService> = eventsApiStub
+  ) {
     await TestBed.configureTestingModule({
       imports: [SeatMapComponent],
       providers: [
         provideRouter([]),
-        { provide: EventsApiService, useValue: eventsApiStub },
+        { provide: EventsApiService, useValue: eventsApiOverride },
         { provide: BookingApiService, useValue: bookingApiStub },
         {
           provide: ActivatedRoute,
@@ -212,5 +215,18 @@ describe('SeatMapComponent', () => {
     // The seat that was already HELD in the initial data is untouched by the push.
     const untouchedRect = findRectByLabel(fixture, 'Floor-A2');
     expect(untouchedRect.getAttribute('class')).toContain('seat-held');
+  });
+
+  it('shows an error message instead of an infinite loading state when the initial load fails', async () => {
+    const failingEventsApi: Partial<EventsApiService> = {
+      getEvent: () => throwError(() => new Error('network down')),
+      getSeatMap: () => of(mockSeats)
+    };
+    const fixture = await setup({}, failingEventsApi);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Could not load the seat map');
+    expect(compiled.textContent).not.toContain('Loading seat map');
   });
 });

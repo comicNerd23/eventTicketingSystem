@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { EventListComponent } from './event-list.component';
 import { EventPage } from './event.model';
@@ -33,26 +33,34 @@ describe('EventListComponent', () => {
     size: 20
   };
 
-  beforeEach(async () => {
-    const eventsApiStub = { listEvents: () => of(mockPage) };
-
-    await TestBed.configureTestingModule({
+  function setup(eventsApiStub: Partial<EventsApiService>) {
+    TestBed.configureTestingModule({
       imports: [EventListComponent],
       providers: [provideRouter([]), { provide: EventsApiService, useValue: eventsApiStub }]
-    }).compileComponents();
-  });
+    });
+    return TestBed.createComponent(EventListComponent);
+  }
 
   it('should create', () => {
-    const fixture = TestBed.createComponent(EventListComponent);
+    const fixture = setup({ listEvents: () => of(mockPage) });
     expect(fixture.componentInstance).toBeTruthy();
   });
 
   it('renders the event title from the stubbed service', () => {
-    const fixture = TestBed.createComponent(EventListComponent);
+    const fixture = setup({ listEvents: () => of(mockPage) });
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.textContent).toContain('Coldplay: Music of the Spheres Tour');
     expect(compiled.textContent).toContain('The O2 Arena, London');
+  });
+
+  it('shows an error message instead of an infinite loading state when listEvents fails', () => {
+    const fixture = setup({ listEvents: () => throwError(() => new Error('network down')) });
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Could not load events');
+    expect(compiled.textContent).not.toContain('Loading events');
   });
 });

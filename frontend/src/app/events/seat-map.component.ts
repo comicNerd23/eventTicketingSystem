@@ -71,6 +71,7 @@ export class SeatMapComponent {
   private readonly eventId = this.route.snapshot.paramMap.get('id')!;
 
   readonly data = signal<SeatMapData | null>(null);
+  readonly loadError = signal<string | null>(null);
 
   holdingSeatId: string | null = null;
   holdError: string | null = null;
@@ -79,8 +80,9 @@ export class SeatMapComponent {
     forkJoin({
       event: this.eventsApi.getEvent(this.eventId),
       seats: this.eventsApi.getSeatMap(this.eventId)
-    }).subscribe(({ event, seats }) => {
-      this.data.set({ event, sections: groupBySection(seats) });
+    }).subscribe({
+      next: ({ event, seats }) => this.data.set({ event, sections: groupBySection(seats) }),
+      error: () => this.loadError.set('Could not load the seat map — please try again.')
     });
 
     this.connectLiveUpdates();

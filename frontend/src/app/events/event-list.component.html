@@ -1,6 +1,6 @@
 <h1 class="text-3xl font-bold text-gray-900">Upcoming Events</h1>
 
-@if (eventPage$ | async; as eventPage) {
+@if (eventPage(); as eventPage) {
   @if (eventPage.content.length === 0) {
     <p class="mt-6 text-gray-500">No events found.</p>
   } @else {
@@ -22,5 +22,9 @@
     </ul>
   }
 } @else {
-  <p class="mt-6 text-gray-500">Loading events&hellip;</p>
+  @if (loadError(); as err) {
+    <p class="mt-6 font-semibold text-red-600">{{ err }}</p>
+  } @else {
+    <p class="mt-6 text-gray-500">Loading events&hellip;</p>
+  }
 }
