@@ -413,6 +413,48 @@ class BookingServiceTest {
         assertThat(bookingService.getActiveSeatsForEvent(eventId)).isEmpty();
     }
 
+    // ── getActiveSeatCounts ───────────────────────────────────────────────────
+
+    @Test
+    void getActiveSeatCounts_returnsOneEntryPerRequestedEvent_defaultingToZero() {
+        UUID eventA = UUID.randomUUID();
+        UUID eventB = UUID.randomUUID();
+        UUID eventC = UUID.randomUUID();
+        Booking heldForA = aBooking(UUID.randomUUID(), UUID.randomUUID(), BookingStatus.HELD);
+        Booking confirmedForA = aBooking(UUID.randomUUID(), UUID.randomUUID(), BookingStatus.CONFIRMED);
+        Booking confirmedForB = aBooking(UUID.randomUUID(), UUID.randomUUID(), BookingStatus.CONFIRMED);
+        given(bookingRepository.findByEventIdInAndStatusIn(eq(List.of(eventA, eventB, eventC)), anyList()))
+            .willAnswer(inv -> {
+                heldForA.setEventId(eventA);
+                confirmedForA.setEventId(eventA);
+                confirmedForB.setEventId(eventB);
+                return List.of(heldForA, confirmedForA, confirmedForB);
+            });
+
+        var result = bookingService.getActiveSeatCounts(List.of(eventA, eventB, eventC));
+
+        assertThat(result).hasSize(3);
+        assertThat(result).anySatisfy(r -> {
+            assertThat(r.eventId()).isEqualTo(eventA);
+            assertThat(r.activeSeatCount()).isEqualTo(2);
+        });
+        assertThat(result).anySatisfy(r -> {
+            assertThat(r.eventId()).isEqualTo(eventB);
+            assertThat(r.activeSeatCount()).isEqualTo(1);
+        });
+        assertThat(result).anySatisfy(r -> {
+            assertThat(r.eventId()).isEqualTo(eventC);
+            assertThat(r.activeSeatCount()).isEqualTo(0);
+        });
+    }
+
+    @Test
+    void getActiveSeatCounts_whenEmptyInput_returnsEmptyList() {
+        var result = bookingService.getActiveSeatCounts(List.of());
+
+        assertThat(result).isEmpty();
+    }
+
     // ── getBooking ────────────────────────────────────────────────────────────
 
     @Test

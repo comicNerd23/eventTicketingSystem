@@ -218,6 +218,26 @@ class BookingControllerTest {
             .andExpect(jsonPath("$").isEmpty());
     }
 
+    // ── GET /bookings/events/active-seats/counts ─────────────────────────────
+
+    @Test
+    void getActiveSeatCounts_returnsOneCountPerRequestedEvent() throws Exception {
+        UUID eventA = UUID.randomUUID();
+        UUID eventB = UUID.randomUUID();
+        given(bookingService.getActiveSeatCounts(java.util.List.of(eventA, eventB)))
+            .willReturn(java.util.List.of(
+                new com.ticketing.booking.dto.EventSeatCountResponse(eventA, 3),
+                new com.ticketing.booking.dto.EventSeatCountResponse(eventB, 0)));
+
+        mvc.perform(get("/bookings/events/active-seats/counts")
+                .param("eventIds", eventA.toString(), eventB.toString()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].eventId").value(eventA.toString()))
+            .andExpect(jsonPath("$[0].activeSeatCount").value(3))
+            .andExpect(jsonPath("$[1].eventId").value(eventB.toString()))
+            .andExpect(jsonPath("$[1].activeSeatCount").value(0));
+    }
+
     // ── GET /bookings/{id} ────────────────────────────────────────────────────
 
     @Test

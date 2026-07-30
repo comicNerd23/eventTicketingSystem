@@ -8,6 +8,7 @@ import com.ticketing.booking.domain.BookingStatus;
 import com.ticketing.booking.dto.ActiveSeatResponse;
 import com.ticketing.booking.dto.BookingResponse;
 import com.ticketing.booking.dto.ConfirmBookingRequest;
+import com.ticketing.booking.dto.EventSeatCountResponse;
 import com.ticketing.booking.dto.HoldSeatRequest;
 import com.ticketing.booking.exception.BookingNotCancellableException;
 import com.ticketing.booking.exception.BookingNotFoundException;
@@ -25,7 +26,9 @@ import java.time.Instant;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class BookingService {
@@ -113,6 +116,17 @@ public class BookingService {
                 List.of(BookingStatus.HELD, BookingStatus.PAYMENT_PENDING, BookingStatus.CONFIRMED))
             .stream()
             .map(ActiveSeatResponse::from)
+            .toList();
+    }
+
+    public List<EventSeatCountResponse> getActiveSeatCounts(List<UUID> eventIds) {
+        Map<UUID, Long> countsByEvent = bookingRepository.findByEventIdInAndStatusIn(eventIds,
+                List.of(BookingStatus.HELD, BookingStatus.PAYMENT_PENDING, BookingStatus.CONFIRMED))
+            .stream()
+            .collect(Collectors.groupingBy(Booking::getEventId, Collectors.counting()));
+
+        return eventIds.stream()
+            .map(eventId -> new EventSeatCountResponse(eventId, countsByEvent.getOrDefault(eventId, 0L).intValue()))
             .toList();
     }
 

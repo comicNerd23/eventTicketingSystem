@@ -2,13 +2,17 @@ package com.ticketing.event.service;
 
 import com.ticketing.event.client.ActiveSeat;
 import com.ticketing.event.client.BookingServiceClient;
+import com.ticketing.event.client.EventSeatCount;
+import com.ticketing.event.domain.Event;
 import com.ticketing.event.domain.Section;
 import com.ticketing.event.domain.Seat;
 import com.ticketing.event.domain.SeatStatus;
 import com.ticketing.event.domain.Venue;
 import com.ticketing.event.dto.CreateEventRequest;
+import com.ticketing.event.dto.EventPageResponse;
 import com.ticketing.event.dto.EventResponse;
 import com.ticketing.event.dto.SeatResponse;
+import com.ticketing.event.exception.BookingServiceUnavailableException;
 import com.ticketing.event.exception.EventNotFoundException;
 import com.ticketing.event.repository.EventRepository;
 import com.ticketing.event.repository.SeatRepository;
@@ -19,6 +23,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.time.Instant;
 import java.util.List;
@@ -175,7 +182,84 @@ class EventServiceTest {
             .isInstanceOf(com.ticketing.event.exception.SeatNotFoundException.class);
     }
 
+    // ── getEvent — live availability composition ────────────────────────────────
+
+    @Test
+    void getEvent_composesLiveAvailableSeatsFromActiveBookingCount() {
+        UUID eventId = UUID.randomUUID();
+        given(eventRepository.findById(eventId)).willReturn(java.util.Optional.of(anEvent(eventId, 650)));
+        given(bookingServiceClient.getActiveSeatCounts(List.of(eventId)))
+            .willReturn(List.of(new EventSeatCount(eventId, 5)));
+
+        EventResponse response = eventService.getEvent(eventId);
+
+        assertThat(response.getAvailableSeats()).isEqualTo(645);
+    }
+
+    @Test
+    void getEvent_whenNoActiveBookings_availableSeatsEqualsTotalSeats() {
+        UUID eventId = UUID.randomUUID();
+        given(eventRepository.findById(eventId)).willReturn(java.util.Optional.of(anEvent(eventId, 650)));
+        given(bookingServiceClient.getActiveSeatCounts(List.of(eventId))).willReturn(List.of());
+
+        EventResponse response = eventService.getEvent(eventId);
+
+        assertThat(response.getAvailableSeats()).isEqualTo(650);
+    }
+
+    @Test
+    void getEvent_whenBookingServiceUnavailable_propagatesException() {
+        UUID eventId = UUID.randomUUID();
+        given(eventRepository.findById(eventId)).willReturn(java.util.Optional.of(anEvent(eventId, 650)));
+        given(bookingServiceClient.getActiveSeatCounts(List.of(eventId)))
+            .willThrow(new BookingServiceUnavailableException(List.of(eventId), new RuntimeException("down")));
+
+        assertThatThrownBy(() -> eventService.getEvent(eventId))
+            .isInstanceOf(BookingServiceUnavailableException.class);
+    }
+
+    // ── listEvents — live availability composition ──────────────────────────────
+
+    @Test
+    void listEvents_composesLiveAvailableSeatsForEveryEventInThePage() {
+        UUID eventA = UUID.randomUUID();
+        UUID eventB = UUID.randomUUID();
+        PageImpl<Event> page = new PageImpl<>(List.of(anEvent(eventA, 650), anEvent(eventB, 100)));
+        given(eventRepository.findAll(any(Specification.class), any(PageRequest.class))).willReturn(page);
+        given(bookingServiceClient.getActiveSeatCounts(List.of(eventA, eventB)))
+            .willReturn(List.of(new EventSeatCount(eventA, 3), new EventSeatCount(eventB, 0)));
+
+        EventPageResponse result = eventService.listEvents(null, null, null, null, 0, 20);
+
+        assertThat(availableSeatsOf(result, eventA)).isEqualTo(647);
+        assertThat(availableSeatsOf(result, eventB)).isEqualTo(100);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
+
+    private Event anEvent(UUID id, int totalSeats) {
+        Event event = new Event();
+        event.setId(id);
+        event.setTitle("Coldplay: Music of the Spheres Tour");
+        event.setVenueId(venueId);
+        event.setVenueName("The O2 Arena");
+        event.setCity("London");
+        event.setStartsAt(Instant.parse("2026-09-15T19:30:00Z"));
+        event.setEndsAt(Instant.parse("2026-09-15T22:30:00Z"));
+        event.setOrganizerId(organizerId);
+        event.setTotalSeats(totalSeats);
+        event.setAvailableSeats(totalSeats);
+        event.setCreatedAt(Instant.now());
+        return event;
+    }
+
+    private int availableSeatsOf(EventPageResponse page, UUID eventId) {
+        return page.getContent().stream()
+            .filter(e -> e.getId().equals(eventId))
+            .findFirst()
+            .orElseThrow()
+            .getAvailableSeats();
+    }
 
     private SeatStatus statusOf(List<SeatResponse> seats, UUID seatId) {
         return seats.stream().filter(s -> s.getId().equals(seatId)).findFirst().orElseThrow().getStatus();

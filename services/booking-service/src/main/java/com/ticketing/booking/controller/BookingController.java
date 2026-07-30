@@ -3,6 +3,7 @@ package com.ticketing.booking.controller;
 import com.ticketing.booking.dto.ActiveSeatResponse;
 import com.ticketing.booking.dto.BookingResponse;
 import com.ticketing.booking.dto.ConfirmBookingRequest;
+import com.ticketing.booking.dto.EventSeatCountResponse;
 import com.ticketing.booking.dto.HoldSeatRequest;
 import com.ticketing.booking.service.BookingService;
 import jakarta.validation.Valid;
@@ -47,6 +48,11 @@ public class BookingController {
     @GetMapping("/events/{eventId}/active-seats")
     public ResponseEntity<List<ActiveSeatResponse>> getActiveSeatsForEvent(@PathVariable UUID eventId) {
         return ResponseEntity.ok(bookingService.getActiveSeatsForEvent(eventId));
+    }
+
+    @GetMapping("/events/active-seats/counts")
+    public ResponseEntity<List<EventSeatCountResponse>> getActiveSeatCounts(@RequestParam List<UUID> eventIds) {
+        return ResponseEntity.ok(bookingService.getActiveSeatCounts(eventIds));
     }
 
     @PostMapping("/{bookingId}/cancel")

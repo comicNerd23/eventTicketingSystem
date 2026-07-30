@@ -73,6 +73,30 @@ class BookingRepositoryTest {
         assertThat(exists).isFalse();
     }
 
+    @Test
+    void findByEventIdInAndStatusIn_returnsActiveBookingsAcrossMultipleEvents() {
+        UUID eventA = UUID.randomUUID();
+        UUID eventB = UUID.randomUUID();
+        UUID eventC = UUID.randomUUID();
+
+        Booking bookingA = aBooking(UUID.randomUUID(), BookingStatus.HELD);
+        bookingA.setEventId(eventA);
+        Booking bookingB = aBooking(UUID.randomUUID(), BookingStatus.CONFIRMED);
+        bookingB.setEventId(eventB);
+        Booking cancelledForA = aBooking(UUID.randomUUID(), BookingStatus.CANCELLED);
+        cancelledForA.setEventId(eventA);
+        bookingRepository.save(bookingA);
+        bookingRepository.save(bookingB);
+        bookingRepository.save(cancelledForA);
+
+        List<Booking> active = bookingRepository.findByEventIdInAndStatusIn(
+            List.of(eventA, eventB, eventC),
+            List.of(BookingStatus.CONFIRMED, BookingStatus.PAYMENT_PENDING, BookingStatus.HELD));
+
+        assertThat(active).hasSize(2);
+        assertThat(active).extracting(Booking::getEventId).containsExactlyInAnyOrder(eventA, eventB);
+    }
+
     // ── helper ────────────────────────────────────────────────────────────────
 
     private Booking aBooking(UUID seatId, BookingStatus status) {

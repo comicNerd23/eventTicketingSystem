@@ -58,6 +58,7 @@ public class EventResponse {
     public UUID getOrganizerId() { return organizerId; }
     public int getTotalSeats() { return totalSeats; }
     public int getAvailableSeats() { return availableSeats; }
+    public void setAvailableSeats(int availableSeats) { this.availableSeats = availableSeats; }
     public String getImageUrl() { return imageUrl; }
     public Instant getCreatedAt() { return createdAt; }
 }

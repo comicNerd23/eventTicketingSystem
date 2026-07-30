@@ -30,4 +30,19 @@ public class BookingServiceClient {
             throw new BookingServiceUnavailableException(eventId, e);
         }
     }
+
+    public List<EventSeatCount> getActiveSeatCounts(List<UUID> eventIds) {
+        try {
+            EventSeatCount[] counts = restClient.get()
+                .uri(uriBuilder -> uriBuilder
+                    .path("/bookings/events/active-seats/counts")
+                    .queryParam("eventIds", eventIds)
+                    .build())
+                .retrieve()
+                .body(EventSeatCount[].class);
+            return counts == null ? List.of() : List.of(counts);
+        } catch (RestClientException e) {
+            throw new BookingServiceUnavailableException(eventIds, e);
+        }
+    }
 }

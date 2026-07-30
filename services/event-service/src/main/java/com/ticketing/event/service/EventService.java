@@ -2,6 +2,7 @@ package com.ticketing.event.service;
 
 import com.ticketing.event.client.ActiveSeat;
 import com.ticketing.event.client.BookingServiceClient;
+import com.ticketing.event.client.EventSeatCount;
 import com.ticketing.event.domain.Event;
 import com.ticketing.event.domain.EventCategory;
 import com.ticketing.event.domain.EventStatus;
@@ -128,14 +129,39 @@ public class EventService {
     }
 
     public EventResponse getEvent(UUID eventId) {
-        return eventRepository.findById(eventId)
+        EventResponse response = eventRepository.findById(eventId)
             .map(EventResponse::from)
             .orElseThrow(() -> new EventNotFoundException(eventId));
+        applyLiveAvailability(List.of(response));
+        return response;
     }
 
     public EventPageResponse listEvents(String city, EventCategory category, LocalDate dateFrom, LocalDate dateTo, int page, int size) {
         var spec = EventSpecifications.withFilters(city, category, dateFrom, dateTo);
         var result = eventRepository.findAll(spec, PageRequest.of(page, size));
-        return EventPageResponse.from(result);
+        EventPageResponse pageResponse = EventPageResponse.from(result);
+        applyLiveAvailability(pageResponse.getContent());
+        return pageResponse;
+    }
+
+    // Event.availableSeats is only ever set once at creation time (see createEvent above) and
+    // is never decremented as seats get held/booked — it's a stale snapshot, not a live count.
+    // Overriding it here with a real composition against booking-service (same pattern getSeatMap
+    // already uses) is what keeps GET /events and GET /events/{id} honest. Deliberately not
+    // catching BookingServiceUnavailableException — a booking-service outage should surface as a
+    // real failure here too, the same "no silent degrade to a wrong number" choice getSeatMap
+    // already made, not silently keep serving stale/wrong availability.
+    private void applyLiveAvailability(List<EventResponse> events) {
+        if (events.isEmpty()) {
+            return;
+        }
+        List<UUID> eventIds = events.stream().map(EventResponse::getId).toList();
+        Map<UUID, Integer> activeCountsByEvent = bookingServiceClient.getActiveSeatCounts(eventIds).stream()
+            .collect(java.util.stream.Collectors.toMap(EventSeatCount::eventId, EventSeatCount::activeSeatCount));
+
+        for (EventResponse event : events) {
+            int activeCount = activeCountsByEvent.getOrDefault(event.getId(), 0);
+            event.setAvailableSeats(Math.max(0, event.getTotalSeats() - activeCount));
+        }
     }
 }
