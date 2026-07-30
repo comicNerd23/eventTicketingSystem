@@ -326,6 +326,16 @@ New test: `PaymentSagaIntegrationTest.paymentInitiated_withNoManualWebhookCall_s
 
 **Real end-to-end verification, reproducing the user's exact original bug report**: rebuilt `payment-service` in Docker, held a real seat, confirmed it, and — with zero manual webhook calls — watched the booking resolve on its own from `PAYMENT_PENDING` to `CONFIRMED` with a real ticket reference (`TKT-2026-...`) within about a second. Then ran the full restructured `demo.sh` end-to-end against the live stack; all 15 steps passed, including Step 15's refund check, which now depends on a payment that reached `SUCCEEDED` via the stub's own self-delivered webhook rather than the script's manual call.
 
+### event-service — reusable demo-catalog reseed script, done
+
+**Found by the user looking at the frontend, not by any automated test**: the events list was mostly one event ("Coldplay: Music of the Spheres Tour") repeated many times, plus nine generic "Pagination Test Event N" placeholders left over from the earlier pagination-polish slice — 15 events total, 14 of them not meaningfully distinct. Root cause: `demo.sh` deliberately creates a fresh venue + event on every run (it's exercising the real create flow, not just reading), so repeated verification runs across this project's many sessions had quietly accumulated duplicates in the live dev database.
+
+New `seed-events.sh` at the repo root: truncates event-service's `venues`/`sections`/`events`/`seats` tables directly via `docker exec psql` (event-service has no `DELETE` endpoint — nothing in the real API surface needs one — and this is the same "pure disposable demo data, no real loss" precedent already used earlier in this project for the same database), then creates 10 varied real events through the actual `POST /venues`/`POST /events` APIs — 3 concerts, 3 sports, 2 theatre, 1 comedy, 1 other, spread across London/Manchester/Birmingham with distinct venues, section layouts, and pricing. Booking-service is untouched by the truncate — any historical booking referencing an old event/seat id just becomes orphaned demo history, which is harmless since nothing re-validates a `CONFIRMED`/`CANCELLED` booking's event after the fact.
+
+**Worth remembering**: running `demo.sh` after `seed-events.sh` adds one more "Coldplay" event back (its own create-flow test step) — this is expected, not a regression. Confirmed live: ran `demo.sh` once after seeding for verification, which did exactly this; the resulting duplicate (plus its now-orphaned venue row) was removed with two direct `DELETE`s, and `seed-events.sh` is the documented way to reset back to the clean 10 whenever it recurs.
+
+No new automated tests — this is dev/demo tooling, not application logic. Verified by reading the reseeded catalog back via `GET /events` (10 distinct titles, no duplicates) and by screenshotting the real frontend events list via a headless-Chrome CDP session, confirming genuine variety (titles, category badges, cities, per-event seat counts) rendered from live backend data.
+
 ---
 
 ## Outstanding housekeeping
