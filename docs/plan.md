@@ -252,6 +252,14 @@ Styling/architecture decision documented as `docs/adr/ADR-009-live-seat-updates.
 
 **Known limitation, documented rather than hidden** (see ADR-009 Consequences): no reconnect/backoff if the WebSocket connection drops — a real production gap accepted at this project's scope.
 
+### Angular frontend — booking countdown timer polish, done
+
+Reading `BookingStatusComponent` before touching it turned up a real bug alongside the cosmetic ask: `tick()` recomputed `remainingSeconds` every second while `HELD` but never noticed when it hit zero — the backend's Redis TTL genuinely expires the hold server-side (`SeatHoldExpiredListener`, built several slices ago), but the frontend just sat on a stale "0:00" HELD view until the user clicked a button and got a confusing error. Fixed: when `updateRemaining` computes `0` while still `HELD`, `tick()` now re-fetches via the same `loadBooking()` already used for the `PAYMENT_PENDING` poll — self-terminating once the real `EXPIRED` status comes back, exactly like that existing poll.
+
+Cosmetic half of the ask: a new `urgency` computed signal (`normal`/`warning`/`critical`, thresholds at 120s/30s remaining) drives both the countdown badge's color (amber → orange → red, with `animate-pulse` in the last 30s) and a new slim progress bar — width driven by a `progressPercent` computed from the booking's *real* `createdAt`/`holdExpiresAt` (not a hardcoded 600s), so it stays accurate even if `booking.hold.ttl-seconds` changes. Tailwind class strings per tier are returned as complete literals from `countdownClasses()`/`progressBarClasses()` (same reason `SeatMapComponent.seatClass()` does this — Tailwind's scanner needs full literal tokens, not concatenated fragments).
+
+22 frontend tests passing (up from 20): a critical-tier render case, and an `fakeAsync`/`tick(1000)`-driven case proving the expiry re-fetch actually happens — the first deliberate use of Angular's fake timers in this codebase, justified here because the 1-second tick under test is the component's *own* internal clock, not external saga timing (the earlier "don't fake-timer the polling" note was about not simulating the backend's saga speed, a different concern). Verified live against the real stack too: held a real seat, screenshotted the booking page showing the real countdown (9:38 remaining) and an accurately ~96%-full amber progress bar against real `holdExpiresAt`/`createdAt` values from the backend.
+
 ### payment-service — payment-simulator retired, wired into the live saga, done
 
 Closes the last item on this list. `payment-simulator` (one Kafka consumer, no persistence, no real logic — always a scaffolding device, never a real service from ADR-001's count) is deleted entirely from the repo. `payment-service` is now the sole live-saga participant.

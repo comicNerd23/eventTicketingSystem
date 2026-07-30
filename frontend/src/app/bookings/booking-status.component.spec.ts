@@ -1,4 +1,4 @@
-import { TestBed } from '@angular/core/testing';
+import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
 
@@ -89,4 +89,39 @@ describe('BookingStatusComponent', () => {
 
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('Could not start payment');
   });
+
+  it('renders the critical (pulsing, red) urgency tier when under 30 seconds remain', () => {
+    const nearlyExpired: Booking = {
+      ...heldBooking,
+      holdExpiresAt: new Date(Date.now() + 15 * 1000).toISOString()
+    };
+    const fixture = setup({ getBooking: () => of(nearlyExpired) });
+
+    const statusEl = fixture.nativeElement.querySelector('.status.held') as HTMLElement;
+    expect(statusEl.className).toContain('bg-red-100');
+    expect(statusEl.className).toContain('animate-pulse');
+  });
+
+  it('re-fetches the booking once the countdown reaches zero, picking up EXPIRED', fakeAsync(() => {
+    const expiringNow: Booking = {
+      ...heldBooking,
+      holdExpiresAt: new Date(Date.now() - 1000).toISOString()
+    };
+    const expiredBooking: Booking = { ...heldBooking, status: 'EXPIRED', expiredAt: new Date().toISOString() };
+    const getBooking = jasmine.createSpy().and.returnValues(of(expiringNow), of(expiredBooking));
+
+    const fixture = setup({ getBooking });
+    expect(getBooking).toHaveBeenCalledTimes(1);
+
+    tick(1000);
+    fixture.detectChanges();
+
+    expect(getBooking).toHaveBeenCalledTimes(2);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Your hold expired');
+
+    // Destroy while still inside the fakeAsync zone so the component's interval(1000)
+    // subscription (cleaned up via takeUntilDestroyed) doesn't trip fakeAsync's
+    // pending-periodic-timer check on teardown.
+    fixture.destroy();
+  }));
 });

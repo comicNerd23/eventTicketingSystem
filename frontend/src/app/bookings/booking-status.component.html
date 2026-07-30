@@ -10,9 +10,10 @@
 
   @switch (b.status) {
     @case ('HELD') {
-      <p class="status held mt-4 inline-block rounded-md bg-amber-100 px-3 py-2 font-semibold text-amber-800">
-        Held &ndash; expires in {{ countdown() }}
-      </p>
+      <p [class]="countdownClasses()">Held &ndash; expires in {{ countdown() }}</p>
+      <div class="mt-2 h-2 w-full max-w-xs overflow-hidden rounded-full bg-gray-200">
+        <div [class]="progressBarClasses()" [style.width.%]="progressPercent()"></div>
+      </div>
       <div class="actions mt-4 flex gap-3">
         <button
           type="button"
