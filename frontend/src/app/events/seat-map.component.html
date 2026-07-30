@@ -1,4 +1,4 @@
-@if (data$ | async; as data) {
+@if (data(); as data) {
   <a routerLink="/" class="text-indigo-700 hover:underline">&larr; Back to events</a>
 
   <h1 class="mt-2 text-3xl font-bold text-gray-900">{{ data.event.title }}</h1>

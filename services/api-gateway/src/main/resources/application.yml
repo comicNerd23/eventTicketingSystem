@@ -13,6 +13,10 @@ spring:
               uri: ${event.service.base-url}
               predicates:
                 - Path=/venues/**,/events/**
+            - id: booking-service-ws
+              uri: ${booking.service.ws-base-url}
+              predicates:
+                - Path=/bookings/ws/**
             - id: booking-service
               uri: ${booking.service.base-url}
               predicates:
@@ -42,6 +46,7 @@ event:
 booking:
   service:
     base-url: http://localhost:8082
+    ws-base-url: ws://localhost:8082
 payment:
   service:
     base-url: http://localhost:8083

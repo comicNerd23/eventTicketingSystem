@@ -15,6 +15,7 @@ import com.ticketing.booking.exception.BookingNotHeldException;
 import com.ticketing.booking.exception.SeatAlreadyHeldException;
 import com.ticketing.booking.kafka.producer.BookingEventPublisher;
 import com.ticketing.booking.repository.BookingRepository;
+import com.ticketing.booking.websocket.SeatStatusWebSocketHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -35,15 +36,18 @@ public class BookingService {
     private final SeatHoldService seatHoldService;
     private final BookingEventPublisher eventPublisher;
     private final EventServiceClient eventServiceClient;
+    private final SeatStatusWebSocketHandler seatStatusWebSocketHandler;
 
     public BookingService(BookingRepository bookingRepository,
                           SeatHoldService seatHoldService,
                           BookingEventPublisher eventPublisher,
-                          EventServiceClient eventServiceClient) {
+                          EventServiceClient eventServiceClient,
+                          SeatStatusWebSocketHandler seatStatusWebSocketHandler) {
         this.bookingRepository = bookingRepository;
         this.seatHoldService = seatHoldService;
         this.eventPublisher = eventPublisher;
         this.eventServiceClient = eventServiceClient;
+        this.seatStatusWebSocketHandler = seatStatusWebSocketHandler;
     }
 
     @Transactional
@@ -78,6 +82,7 @@ public class BookingService {
         try {
             booking = bookingRepository.save(booking);
             log.info("Seat hold created: booking={} seat={}", booking.getId(), request.getSeatId());
+            seatStatusWebSocketHandler.broadcast(booking.getEventId(), booking.getSeatId(), "HELD");
             return BookingResponse.from(booking);
         } catch (Exception e) {
             seatHoldService.releaseHold(request.getSeatId());
@@ -138,6 +143,7 @@ public class BookingService {
 
         seatHoldService.releaseHold(booking.getSeatId());
         eventPublisher.publishTicketIssued(booking);
+        seatStatusWebSocketHandler.broadcast(booking.getEventId(), booking.getSeatId(), "BOOKED");
 
         log.info("Booking confirmed: booking={} ticket={}", bookingId, booking.getTicketReference());
     }
@@ -157,6 +163,7 @@ public class BookingService {
 
         seatHoldService.releaseHold(booking.getSeatId());
         eventPublisher.publishSeatReleased(booking);
+        seatStatusWebSocketHandler.broadcast(booking.getEventId(), booking.getSeatId(), "AVAILABLE");
         log.info("Booking cancelled after payment failure: booking={} reason={}", bookingId, failureReason);
     }
 
@@ -183,6 +190,7 @@ public class BookingService {
             default -> throw new BookingNotCancellableException(bookingId, booking.getStatus());
         }
 
+        seatStatusWebSocketHandler.broadcast(booking.getEventId(), booking.getSeatId(), "AVAILABLE");
         return BookingResponse.from(booking);
     }
 
@@ -194,6 +202,7 @@ public class BookingService {
             bookingRepository.save(booking);
 
             eventPublisher.publishSeatHoldExpired(booking);
+            seatStatusWebSocketHandler.broadcast(booking.getEventId(), booking.getSeatId(), "AVAILABLE");
             log.info("Seat hold expired: booking={} seat={}", booking.getId(), seatId);
         }, () -> log.debug("No HELD booking found for expired seat hold: seat={}", seatId));
     }

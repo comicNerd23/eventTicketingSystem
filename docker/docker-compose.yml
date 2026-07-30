@@ -146,6 +146,7 @@ services:
     environment:
       EVENT_SERVICE_BASE_URL: http://event-service:8081
       BOOKING_SERVICE_BASE_URL: http://booking-service:8082
+      BOOKING_SERVICE_WS_BASE_URL: ws://booking-service:8082
       PAYMENT_SERVICE_BASE_URL: http://payment-service:8083
       NOTIFICATION_SERVICE_BASE_URL: http://notification-service:8084
       WAITLIST_SERVICE_BASE_URL: http://waitlist-service:8085

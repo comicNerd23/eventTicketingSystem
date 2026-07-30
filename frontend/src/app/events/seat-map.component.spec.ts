@@ -8,6 +8,20 @@ import type { Event, Seat } from './event.model';
 import { EventsApiService } from './events-api.service';
 import { SeatMapComponent } from './seat-map.component';
 
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = [];
+
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  readonly url: string;
+
+  constructor(url: string) {
+    this.url = url;
+    FakeWebSocket.instances.push(this);
+  }
+
+  close(): void {}
+}
+
 describe('SeatMapComponent', () => {
   const mockEvent: Event = {
     id: '11111111-1111-1111-1111-111111111111',
@@ -65,6 +79,18 @@ describe('SeatMapComponent', () => {
     getSeatMap: () => of(mockSeats)
   };
 
+  let originalWebSocket: typeof WebSocket;
+
+  beforeEach(() => {
+    originalWebSocket = window.WebSocket;
+    FakeWebSocket.instances = [];
+    (window as unknown as { WebSocket: unknown }).WebSocket = FakeWebSocket;
+  });
+
+  afterEach(() => {
+    (window as unknown as { WebSocket: unknown }).WebSocket = originalWebSocket;
+  });
+
   async function setup(bookingApiStub: Partial<BookingApiService>) {
     await TestBed.configureTestingModule({
       imports: [SeatMapComponent],
@@ -79,6 +105,15 @@ describe('SeatMapComponent', () => {
       ]
     }).compileComponents();
     return TestBed.createComponent(SeatMapComponent);
+  }
+
+  function findRectByLabel(fixture: ReturnType<typeof TestBed.createComponent>, label: string): SVGRectElement {
+    const rects = Array.from(fixture.nativeElement.querySelectorAll('rect')) as SVGRectElement[];
+    const match = rects.find((r) => r.querySelector('title')?.textContent?.startsWith(label));
+    if (!match) {
+      throw new Error(`No rect found for label ${label}`);
+    }
+    return match;
   }
 
   it('should create', async () => {
@@ -156,5 +191,26 @@ describe('SeatMapComponent', () => {
     fixture.detectChanges();
 
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('just taken by someone else');
+  });
+
+  it('opens a WebSocket to the event seat channel and patches a seat live when a message arrives', async () => {
+    const fixture = await setup({});
+    fixture.detectChanges();
+
+    expect(FakeWebSocket.instances.length).toBe(1);
+    const ws = FakeWebSocket.instances[0];
+    expect(ws.url).toContain(`/bookings/ws/events/${mockEvent.id}/seats`);
+
+    // Floor-A1 starts AVAILABLE — simulate the server pushing that it's now HELD.
+    ws.onmessage!({ data: JSON.stringify({ seatId: mockSeats[0].id, status: 'HELD' }) } as MessageEvent);
+    fixture.detectChanges();
+
+    const patchedRect = findRectByLabel(fixture, 'Floor-A1');
+    expect(patchedRect.getAttribute('class')).toContain('seat-held');
+    expect(patchedRect.getAttribute('fill')).toBe('#ffb300');
+
+    // The seat that was already HELD in the initial data is untouched by the push.
+    const untouchedRect = findRectByLabel(fixture, 'Floor-A2');
+    expect(untouchedRect.getAttribute('class')).toContain('seat-held');
   });
 });

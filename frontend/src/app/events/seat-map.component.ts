@@ -1,8 +1,9 @@
-import { AsyncPipe, DatePipe } from '@angular/common';
-import { Component, inject } from '@angular/core';
+import { DatePipe } from '@angular/common';
+import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { Observable, forkJoin, map } from 'rxjs';
+import { forkJoin } from 'rxjs';
 
+import { environment } from '../../environments/environment';
 import { BookingApiService } from '../bookings/booking-api.service';
 import { Event, Seat, SeatStatus } from './event.model';
 import { EventsApiService } from './events-api.service';
@@ -19,6 +20,11 @@ export interface SeatSection {
 export interface SeatMapData {
   event: Event;
   sections: SeatSection[];
+}
+
+interface SeatStatusMessage {
+  seatId: string;
+  status: SeatStatus;
 }
 
 const SEAT_COLORS: Record<SeatStatus, string> = {
@@ -49,7 +55,7 @@ function groupBySection(seats: Seat[]): SeatSection[] {
 @Component({
   selector: 'app-seat-map',
   standalone: true,
-  imports: [AsyncPipe, DatePipe, RouterLink],
+  imports: [DatePipe, RouterLink],
   templateUrl: './seat-map.component.html',
   styleUrl: './seat-map.component.css'
 })
@@ -58,18 +64,27 @@ export class SeatMapComponent {
   private readonly router = inject(Router);
   private readonly eventsApi = inject(EventsApiService);
   private readonly bookingApi = inject(BookingApiService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly cellSize = CELL_SIZE;
 
   private readonly eventId = this.route.snapshot.paramMap.get('id')!;
 
-  data$: Observable<SeatMapData> = forkJoin({
-    event: this.eventsApi.getEvent(this.eventId),
-    seats: this.eventsApi.getSeatMap(this.eventId)
-  }).pipe(map(({ event, seats }) => ({ event, sections: groupBySection(seats) })));
+  readonly data = signal<SeatMapData | null>(null);
 
   holdingSeatId: string | null = null;
   holdError: string | null = null;
+
+  constructor() {
+    forkJoin({
+      event: this.eventsApi.getEvent(this.eventId),
+      seats: this.eventsApi.getSeatMap(this.eventId)
+    }).subscribe(({ event, seats }) => {
+      this.data.set({ event, sections: groupBySection(seats) });
+    });
+
+    this.connectLiveUpdates();
+  }
 
   seatColor(status: SeatStatus): string {
     return SEAT_COLORS[status];
@@ -110,6 +125,32 @@ export class SeatMapComponent {
         this.holdError = 'That seat was just taken by someone else — please pick another.';
         this.holdingSeatId = null;
       }
+    });
+  }
+
+  private connectLiveUpdates(): void {
+    const ws = new WebSocket(`${environment.wsBaseUrl}/bookings/ws/events/${this.eventId}/seats`);
+
+    ws.onmessage = (event) => {
+      const update: SeatStatusMessage = JSON.parse(event.data);
+      this.patchSeatStatus(update.seatId, update.status);
+    };
+
+    this.destroyRef.onDestroy(() => ws.close());
+  }
+
+  private patchSeatStatus(seatId: string, status: SeatStatus): void {
+    const current = this.data();
+    if (!current) {
+      return;
+    }
+
+    this.data.set({
+      ...current,
+      sections: current.sections.map((section) => ({
+        ...section,
+        seats: section.seats.map((seat) => (seat.id === seatId ? { ...seat, status } : seat))
+      }))
     });
   }
 }

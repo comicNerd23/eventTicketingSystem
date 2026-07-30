@@ -40,6 +40,7 @@ class BookingServiceTest {
     @Mock SeatHoldService seatHoldService;
     @Mock BookingEventPublisher eventPublisher;
     @Mock EventServiceClient eventServiceClient;
+    @Mock com.ticketing.booking.websocket.SeatStatusWebSocketHandler seatStatusWebSocketHandler;
 
     @InjectMocks BookingService bookingService;
 
