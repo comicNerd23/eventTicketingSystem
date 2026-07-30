@@ -101,6 +101,22 @@ class PaymentSagaIntegrationTest {
     }
 
     @Test
+    void paymentInitiated_withNoManualWebhookCall_stillReachesSucceededOnItsOwn() throws Exception {
+        // Proves the ADR-011 fix: the stub gateway self-delivers a simulated Stripe webhook
+        // ~1s after createCharge, so the saga completes with zero manual webhook calls — the
+        // exact scenario that was broken (bookings stuck forever at PAYMENT_PENDING).
+        kafkaTemplate.send("payment-initiated", bookingId.toString(), paymentInitiatedEvent(bookingId, userId));
+
+        await().atMost(10, SECONDS).untilAsserted(() -> {
+            Payment payment = paymentRepository.findByBookingId(bookingId).orElseThrow();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        });
+
+        then(eventPublisher).should().publishPaymentCompleted(any());
+        then(eventPublisher).should(never()).publishPaymentFailed(any());
+    }
+
+    @Test
     void paymentInitiated_thenWebhookFailed_endsFailedAndPublishesPaymentFailed() throws Exception {
         kafkaTemplate.send("payment-initiated", bookingId.toString(), paymentInitiatedEvent(bookingId, userId));
 

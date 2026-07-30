@@ -169,11 +169,13 @@ echo "    Status : PAYMENT_PENDING"
 echo "    Kafka  : payment-initiated published → payment-service consuming..."
 echo ""
 
-# ── Step 3: payment-service consumed payment-initiated, created a PENDING payment ──
+# ── Step 3: payment-service consumed payment-initiated, created a payment ───
 echo ">>> 3. GET /payments/bookings/$BOOKING_ID (payment-service)"
 echo "    payment-service is the real, live saga participant now (payment-simulator has"
 echo "    been retired) — it consumed the payment-initiated event published in Step 2 and"
-echo "    created a PENDING payment via its stubbed PaymentGateway."
+echo "    created a payment via its stubbed PaymentGateway. The stub self-delivers a"
+echo "    simulated Stripe webhook ~1s later (ADR-011), so this may already read SUCCEEDED"
+echo "    by the time we check — either status is expected here."
 for i in 1 2 3 4 5; do
   PAYMENT_RESPONSE=$(curl -s -w "\n%{http_code}" "$PAYMENT_BASE/payments/bookings/$BOOKING_ID")
   HTTP_CODE=$(echo "$PAYMENT_RESPONSE" | tail -1)
@@ -191,14 +193,18 @@ fi
 
 PAYMENT_ID=$(echo "$PAYMENT_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 PAYMENT_INTENT_ID=$(echo "$PAYMENT_BODY" | grep -o '"stripePaymentIntentId":"[^"]*"' | cut -d'"' -f4)
+PAYMENT_STATUS=$(echo "$PAYMENT_BODY" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
 echo ""
-echo "    Payment ID : $PAYMENT_ID  (status: PENDING, stripePaymentIntentId: $PAYMENT_INTENT_ID)"
+echo "    Payment ID : $PAYMENT_ID  (status: $PAYMENT_STATUS, stripePaymentIntentId: $PAYMENT_INTENT_ID)"
 echo ""
 
-# ── Step 4: simulate Stripe's async webhook confirming the charge ──────────
-echo ">>> 4. POST /payments/webhook (payment-service) — simulated Stripe confirmation"
-echo "    This is what actually finalizes the saga now — a real Stripe integration would"
-echo "    deliver this from Stripe's own servers instead of demo.sh simulating it here."
+# ── Step 4: manually deliver the same Stripe webhook the stub already sent ──
+echo ">>> 4. POST /payments/webhook (payment-service) — manual re-delivery"
+echo "    Since ADR-011, the stub gateway already self-delivers this webhook moments after"
+echo "    Step 2 — the saga typically finishes on its own before this step even runs. This"
+echo "    call instead demonstrates that the webhook endpoint is safe against Stripe's"
+echo "    real-world at-least-once redelivery guarantee: if the payment is already"
+echo "    SUCCEEDED, the idempotency guard makes this a safe no-op (still HTTP 200)."
 WEBHOOK_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$PAYMENT_BASE/payments/webhook" \
   -H "Content-Type: application/json" \
   -H "Stripe-Signature: t=demo,v1=stub_signature" \
@@ -215,8 +221,9 @@ echo ""
 
 # ── Step 5: Poll final booking state ─────────────────────────────────────────
 echo ">>> 5. GET /bookings/$BOOKING_ID  (should be CONFIRMED)"
-echo "    Only reaches CONFIRMED now because Step 4's webhook published payment-completed —"
-echo "    booking-service consumed it and finished the saga."
+echo "    Reaches CONFIRMED because a webhook published payment-completed and booking-service"
+echo "    consumed it — typically the stub's own self-delivered webhook from Step 3's ~1s"
+echo "    delay, with Step 4's manual call as a no-op backup if it hasn't landed yet."
 FINAL_RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE/bookings/$BOOKING_ID" \
   -H "X-User-Id: $USER_ID")
 
@@ -460,8 +467,9 @@ echo ""
 # ── Step 15: payment-service — real refund after booking-cancelled ───────────
 echo ">>> 15. GET /payments/bookings/$BOOKING_ID (payment-service, should be REFUNDED)"
 echo "    Step 9 cancelled this CONFIRMED booking, publishing booking-cancelled. payment-service's"
-echo "    own payment for it was already SUCCEEDED (Step 4's webhook call), so its"
-echo "    booking-cancelled consumer should have issued a stub refund and transitioned it here."
+echo "    own payment for it was already SUCCEEDED (the stub's self-delivered webhook from"
+echo "    Step 3), so its booking-cancelled consumer should have issued a stub refund and"
+echo "    transitioned it here."
 for i in 1 2 3 4 5; do
   REFUND_RESPONSE=$(curl -s -w "\n%{http_code}" "$PAYMENT_BASE/payments/bookings/$BOOKING_ID")
   HTTP_CODE=$(echo "$REFUND_RESPONSE" | tail -1)
