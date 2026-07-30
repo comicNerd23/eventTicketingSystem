@@ -9,8 +9,8 @@ import { Event, EventPage, Seat } from './event.model';
 export class EventsApiService {
   private readonly http = inject(HttpClient);
 
-  listEvents(): Observable<EventPage> {
-    return this.http.get<EventPage>(`${environment.apiBaseUrl}/events`);
+  listEvents(page = 0): Observable<EventPage> {
+    return this.http.get<EventPage>(`${environment.apiBaseUrl}/events?page=${page}&size=10`);
   }
 
   getEvent(eventId: string): Observable<Event> {

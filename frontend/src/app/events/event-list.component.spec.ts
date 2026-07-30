@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { of, throwError } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
 
 import { EventListComponent } from './event-list.component';
 import { EventPage } from './event.model';
@@ -30,7 +30,7 @@ describe('EventListComponent', () => {
     totalElements: 1,
     totalPages: 1,
     page: 0,
-    size: 20
+    size: 10
   };
 
   function setup(eventsApiStub: Partial<EventsApiService>) {
@@ -46,13 +46,14 @@ describe('EventListComponent', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('renders the event title from the stubbed service', () => {
+  it('renders the event title, category badge from the stubbed service', () => {
     const fixture = setup({ listEvents: () => of(mockPage) });
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.textContent).toContain('Coldplay: Music of the Spheres Tour');
     expect(compiled.textContent).toContain('The O2 Arena, London');
+    expect(compiled.querySelector('.category')?.textContent).toContain('CONCERT');
   });
 
   it('shows an error message instead of an infinite loading state when listEvents fails', () => {
@@ -62,5 +63,39 @@ describe('EventListComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.textContent).toContain('Could not load events');
     expect(compiled.textContent).not.toContain('Loading events');
+  });
+
+  it('renders a loading skeleton instead of plain text while the request is pending', () => {
+    const fixture = setup({ listEvents: () => new Subject<EventPage>() });
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.skeleton')).toBeTruthy();
+    expect(compiled.textContent).not.toContain('Loading events');
+  });
+
+  it('hides pagination controls when there is only one page', () => {
+    const fixture = setup({ listEvents: () => of(mockPage) });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.pagination')).toBeFalsy();
+  });
+
+  it('shows pagination controls and requests the next page on click', () => {
+    const multiPage: EventPage = { ...mockPage, totalPages: 3, page: 0 };
+    const listEvents = jasmine.createSpy().and.returnValue(of(multiPage));
+    const fixture = setup({ listEvents });
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Page 1 of 3');
+
+    const [previousButton, nextButton] = Array.from(compiled.querySelectorAll('.pagination button')) as HTMLButtonElement[];
+    expect(previousButton.disabled).toBeTrue();
+    expect(nextButton.disabled).toBeFalse();
+
+    nextButton.click();
+
+    expect(listEvents).toHaveBeenCalledWith(1);
   });
 });

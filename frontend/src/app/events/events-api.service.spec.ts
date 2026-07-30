@@ -22,7 +22,7 @@ describe('EventsApiService', () => {
     httpMock.verify();
   });
 
-  it('listEvents fetches from the gateway events endpoint', () => {
+  it('listEvents defaults to page 0 with size 10', () => {
     const mockPage: EventPage = {
       content: [
         {
@@ -46,16 +46,24 @@ describe('EventsApiService', () => {
       totalElements: 1,
       totalPages: 1,
       page: 0,
-      size: 20
+      size: 10
     };
 
     service.listEvents().subscribe((page) => {
       expect(page).toEqual(mockPage);
     });
 
-    const req = httpMock.expectOne(`${environment.apiBaseUrl}/events`);
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/events?page=0&size=10`);
     expect(req.request.method).toBe('GET');
     req.flush(mockPage);
+  });
+
+  it('listEvents requests the given page', () => {
+    service.listEvents(2).subscribe();
+
+    const req = httpMock.expectOne(`${environment.apiBaseUrl}/events?page=2&size=10`);
+    expect(req.request.method).toBe('GET');
+    req.flush({ content: [], totalElements: 0, totalPages: 3, page: 2, size: 10 });
   });
 
   it('getEvent fetches a single event by id', () => {
