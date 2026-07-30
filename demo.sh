@@ -12,6 +12,7 @@ set -e
 BASE="http://localhost:8082"
 EVENT_BASE="http://localhost:8081"
 GATEWAY_BASE="http://localhost:8080"
+PAYMENT_BASE="http://localhost:8083"
 USER_ID="00000000-0000-0000-0000-000000000099"
 
 echo ""
@@ -165,16 +166,57 @@ fi
 
 echo ""
 echo "    Status : PAYMENT_PENDING"
-echo "    Kafka  : payment-initiated published → payment-simulator consuming..."
+echo "    Kafka  : payment-initiated published → payment-service consuming..."
 echo ""
 
-# ── Step 3: Wait for Saga to complete ───────────────────────────────────────
-echo ">>> 3. Waiting 3s for payment-completed → ticket-issued Saga..."
-sleep 3
+# ── Step 3: payment-service consumed payment-initiated, created a PENDING payment ──
+echo ">>> 3. GET /payments/bookings/$BOOKING_ID (payment-service)"
+echo "    payment-service is the real, live saga participant now (payment-simulator has"
+echo "    been retired) — it consumed the payment-initiated event published in Step 2 and"
+echo "    created a PENDING payment via its stubbed PaymentGateway."
+for i in 1 2 3 4 5; do
+  PAYMENT_RESPONSE=$(curl -s -w "\n%{http_code}" "$PAYMENT_BASE/payments/bookings/$BOOKING_ID")
+  HTTP_CODE=$(echo "$PAYMENT_RESPONSE" | tail -1)
+  if [ "$HTTP_CODE" = "200" ]; then break; fi
+  sleep 1
+done
+PAYMENT_BODY=$(echo "$PAYMENT_RESPONSE" | head -1)
+echo "HTTP $HTTP_CODE"
+echo "$PAYMENT_BODY"
+
+if [ "$HTTP_CODE" != "200" ]; then
+  echo "ERROR: Expected 200, got $HTTP_CODE"
+  exit 1
+fi
+
+PAYMENT_ID=$(echo "$PAYMENT_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+PAYMENT_INTENT_ID=$(echo "$PAYMENT_BODY" | grep -o '"stripePaymentIntentId":"[^"]*"' | cut -d'"' -f4)
+echo ""
+echo "    Payment ID : $PAYMENT_ID  (status: PENDING, stripePaymentIntentId: $PAYMENT_INTENT_ID)"
 echo ""
 
-# ── Step 4: Poll final state ─────────────────────────────────────────────────
-echo ">>> 4. GET /bookings/$BOOKING_ID  (should be CONFIRMED)"
+# ── Step 4: simulate Stripe's async webhook confirming the charge ──────────
+echo ">>> 4. POST /payments/webhook (payment-service) — simulated Stripe confirmation"
+echo "    This is what actually finalizes the saga now — a real Stripe integration would"
+echo "    deliver this from Stripe's own servers instead of demo.sh simulating it here."
+WEBHOOK_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$PAYMENT_BASE/payments/webhook" \
+  -H "Content-Type: application/json" \
+  -H "Stripe-Signature: t=demo,v1=stub_signature" \
+  -d "{\"type\":\"payment_intent.succeeded\",\"paymentIntentId\":\"$PAYMENT_INTENT_ID\"}")
+
+HTTP_CODE=$(echo "$WEBHOOK_RESPONSE" | tail -1)
+echo "HTTP $HTTP_CODE"
+
+if [ "$HTTP_CODE" != "200" ]; then
+  echo "ERROR: Expected 200, got $HTTP_CODE"
+  exit 1
+fi
+echo ""
+
+# ── Step 5: Poll final booking state ─────────────────────────────────────────
+echo ">>> 5. GET /bookings/$BOOKING_ID  (should be CONFIRMED)"
+echo "    Only reaches CONFIRMED now because Step 4's webhook published payment-completed —"
+echo "    booking-service consumed it and finished the saga."
 FINAL_RESPONSE=$(curl -s -w "\n%{http_code}" "$BASE/bookings/$BOOKING_ID" \
   -H "X-User-Id: $USER_ID")
 
@@ -200,7 +242,7 @@ if [ "$STATUS" = "CONFIRMED" ]; then
   echo "  SUCCESS — full Saga completed:"
   echo "    hold → HELD"
   echo "    confirm → PAYMENT_PENDING → payment-initiated on Kafka"
-  echo "    simulator → payment-completed on Kafka"
+  echo "    payment-service webhook → SUCCEEDED → payment-completed on Kafka"
   echo "    booking-service → CONFIRMED + ticket-issued on Kafka"
   echo ""
   echo "  View all topics at: http://localhost:9000"
@@ -211,64 +253,16 @@ else
 fi
 echo ""
 
-# ── Step 5: payment-service — independently consumed the same payment-initiated event ──
-PAYMENT_BASE="http://localhost:8083"
-echo ">>> 5. GET /payments/bookings/$BOOKING_ID (payment-service)"
-echo "    payment-service has its own Kafka consumer group, distinct from payment-simulator's,"
-echo "    so it independently received the same payment-initiated event published in Step 2."
-for i in 1 2 3 4 5; do
-  PAYMENT_RESPONSE=$(curl -s -w "\n%{http_code}" "$PAYMENT_BASE/payments/bookings/$BOOKING_ID")
-  HTTP_CODE=$(echo "$PAYMENT_RESPONSE" | tail -1)
-  if [ "$HTTP_CODE" = "200" ]; then break; fi
-  sleep 1
-done
-PAYMENT_BODY=$(echo "$PAYMENT_RESPONSE" | head -1)
-echo "HTTP $HTTP_CODE"
-echo "$PAYMENT_BODY"
-
-if [ "$HTTP_CODE" != "200" ]; then
-  echo "ERROR: Expected 200, got $HTTP_CODE"
-  exit 1
-fi
-
-PAYMENT_ID=$(echo "$PAYMENT_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-PAYMENT_INTENT_ID=$(echo "$PAYMENT_BODY" | grep -o '"stripePaymentIntentId":"[^"]*"' | cut -d'"' -f4)
-echo ""
-echo "    Payment ID : $PAYMENT_ID  (status: PENDING, stripePaymentIntentId: $PAYMENT_INTENT_ID)"
-echo ""
-
-# ── Step 6: simulate Stripe's async webhook confirming the charge ──────────
-echo ">>> 6. POST /payments/webhook (payment-service) — simulated Stripe confirmation"
-WEBHOOK_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$PAYMENT_BASE/payments/webhook" \
-  -H "Content-Type: application/json" \
-  -H "Stripe-Signature: t=demo,v1=stub_signature" \
-  -d "{\"type\":\"payment_intent.succeeded\",\"paymentIntentId\":\"$PAYMENT_INTENT_ID\"}")
-
-HTTP_CODE=$(echo "$WEBHOOK_RESPONSE" | tail -1)
-echo "HTTP $HTTP_CODE"
-
-if [ "$HTTP_CODE" != "200" ]; then
-  echo "ERROR: Expected 200, got $HTTP_CODE"
-  exit 1
-fi
-echo ""
-
-# ── Step 7: confirm the payment-service side is now SUCCEEDED ───────────────
-echo ">>> 7. GET /payments/$PAYMENT_ID (payment-service, should be SUCCEEDED)"
+# ── Step 6: confirm the payment-service side is now SUCCEEDED ───────────────
+echo ">>> 6. GET /payments/$PAYMENT_ID (payment-service, should be SUCCEEDED)"
 curl -s "$PAYMENT_BASE/payments/$PAYMENT_ID"
 echo ""
 echo ""
-echo "    NOTE: payment-service published its own payment-completed for this booking."
-echo "    booking-service already CONFIRMED this booking earlier (Step 4) via payment-simulator's"
-echo "    payment-completed — its handlePaymentCompleted() no-ops on this second, later event"
-echo "    (booking already CONFIRMED). This is expected while both consumers coexist — see"
-echo "    docs/plan.md for the follow-up once payment-service replaces payment-simulator."
-echo ""
 
-# ── Step 8: notification-service — independently consumed the same ticket-issued event ──
+# ── Step 7: notification-service — independently consumed the same ticket-issued event ──
 NOTIFICATION_BASE="http://localhost:8084"
-echo ">>> 8. GET /notifications/bookings/$BOOKING_ID (notification-service)"
-echo "    booking-service published ticket-issued back in Step 4 when the booking was CONFIRMED."
+echo ">>> 7. GET /notifications/bookings/$BOOKING_ID (notification-service)"
+echo "    booking-service published ticket-issued back in Step 5 when the booking was CONFIRMED."
 echo "    notification-service independently consumed it and recorded a confirmation notification."
 for i in 1 2 3 4 5; do
   NOTIFICATION_RESPONSE=$(curl -s -w "\n%{http_code}" "$NOTIFICATION_BASE/notifications/bookings/$BOOKING_ID")
@@ -295,9 +289,9 @@ else
 fi
 echo ""
 
-# ── Step 9: join the waitlist for the demo event ─────────────────────────────
+# ── Step 8: join the waitlist for the demo event ─────────────────────────────
 WAITLIST_BASE="http://localhost:8085"
-echo ">>> 9. POST /waitlist (waitlist-service)"
+echo ">>> 8. POST /waitlist (waitlist-service)"
 echo "    Joining the waitlist for the same event the demo booking is for."
 WAITLIST_JOIN_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$WAITLIST_BASE/waitlist" \
   -H "Content-Type: application/json" \
@@ -319,9 +313,9 @@ echo ""
 echo "    Waitlist entry: $WAITLIST_ENTRY_ID (status: WAITING)"
 echo ""
 
-# ── Step 10: cancel the CONFIRMED booking — publishes booking-cancelled ──────
-echo ">>> 10. POST /bookings/$BOOKING_ID/cancel (booking-service)"
-echo "    Booking is CONFIRMED (from Step 4) — cancelling it publishes booking-cancelled,"
+# ── Step 9: cancel the CONFIRMED booking — publishes booking-cancelled ──────
+echo ">>> 9. POST /bookings/$BOOKING_ID/cancel (booking-service)"
+echo "    Booking is CONFIRMED (from Step 5) — cancelling it publishes booking-cancelled,"
 echo "    consumed by payment-service (refund), notification-service, and waitlist-service."
 CANCEL_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BASE/bookings/$BOOKING_ID/cancel" \
   -H "X-User-Id: $USER_ID")
@@ -346,9 +340,9 @@ else
 fi
 echo ""
 
-# ── Step 11: waitlist-service — promoted in response to booking-cancelled ────
-echo ">>> 11. GET /waitlist/$WAITLIST_ENTRY_ID (waitlist-service, should be PROMOTED)"
-echo "    waitlist-service independently consumed the booking-cancelled event from Step 10"
+# ── Step 10: waitlist-service — promoted in response to booking-cancelled ────
+echo ">>> 10. GET /waitlist/$WAITLIST_ENTRY_ID (waitlist-service, should be PROMOTED)"
+echo "    waitlist-service independently consumed the booking-cancelled event from Step 9"
 echo "    and promoted the next (only) waiting entry for this event."
 for i in 1 2 3 4 5; do
   WAITLIST_GET_RESPONSE=$(curl -s -w "\n%{http_code}" "$WAITLIST_BASE/waitlist/$WAITLIST_ENTRY_ID")
@@ -369,10 +363,10 @@ else
 fi
 echo ""
 
-# ── Step 12: notification-service — recorded booking-cancelled from Step 10 ──
-echo ">>> 12. GET /notifications/bookings/$BOOKING_ID (notification-service, should now be BOOKING_CANCELLED)"
-echo "    notification-service independently consumed the booking-cancelled event from Step 10."
-echo "    This booking already has a TICKET_ISSUED notification from Step 8 — the endpoint"
+# ── Step 11: notification-service — recorded booking-cancelled from Step 9 ──
+echo ">>> 11. GET /notifications/bookings/$BOOKING_ID (notification-service, should now be BOOKING_CANCELLED)"
+echo "    notification-service independently consumed the booking-cancelled event from Step 9."
+echo "    This booking already has a TICKET_ISSUED notification from Step 7 — the endpoint"
 echo "    returns the most recent one, which is now the cancellation."
 for i in 1 2 3 4 5; do
   BC_NOTIFICATION_RESPONSE=$(curl -s -w "\n%{http_code}" "$NOTIFICATION_BASE/notifications/bookings/$BOOKING_ID")
@@ -393,9 +387,9 @@ else
 fi
 echo ""
 
-# ── Step 13: notification-service — recorded waitlist-promoted from Step 11 ──
-echo ">>> 13. GET /notifications/waitlist-entries/$WAITLIST_ENTRY_ID (notification-service)"
-echo "    notification-service independently consumed the waitlist-promoted event from Step 11."
+# ── Step 12: notification-service — recorded waitlist-promoted from Step 10 ──
+echo ">>> 12. GET /notifications/waitlist-entries/$WAITLIST_ENTRY_ID (notification-service)"
+echo "    notification-service independently consumed the waitlist-promoted event from Step 10."
 for i in 1 2 3 4 5; do
   WP_NOTIFICATION_RESPONSE=$(curl -s -w "\n%{http_code}" "$NOTIFICATION_BASE/notifications/waitlist-entries/$WAITLIST_ENTRY_ID")
   HTTP_CODE=$(echo "$WP_NOTIFICATION_RESPONSE" | tail -1)
@@ -421,8 +415,8 @@ else
 fi
 echo ""
 
-# ── Step 14: api-gateway — read routed to event-service ──────────────────────
-echo ">>> 14. GET /events?city=London (api-gateway, port 8080 → event-service)"
+# ── Step 13: api-gateway — read routed to event-service ──────────────────────
+echo ">>> 13. GET /events?city=London (api-gateway, port 8080 → event-service)"
 echo "    Same call as Step 0d, but through the single client-facing entry point instead"
 echo "    of event-service's own port — proves the gateway's read-path routing works."
 GATEWAY_EVENTS_RESPONSE=$(curl -s -w "\n%{http_code}" "$GATEWAY_BASE/events?city=London")
@@ -438,8 +432,8 @@ else
 fi
 echo ""
 
-# ── Step 15: api-gateway — write routed to booking-service ───────────────────
-echo ">>> 15. POST /bookings/hold (api-gateway, port 8080 → booking-service)"
+# ── Step 14: api-gateway — write routed to booking-service ───────────────────
+echo ">>> 14. POST /bookings/hold (api-gateway, port 8080 → booking-service)"
 echo "    A fresh hold on a different real seat, issued through the gateway instead of"
 echo "    booking-service's own port — proves the gateway's write-path routing (with a"
 echo "    request body) works."
@@ -463,11 +457,11 @@ else
 fi
 echo ""
 
-# ── Step 16: payment-service — real refund after booking-cancelled ───────────
-echo ">>> 16. GET /payments/bookings/$BOOKING_ID (payment-service, should be REFUNDED)"
-echo "    Step 10 cancelled this CONFIRMED booking, publishing booking-cancelled. payment-service's"
-echo "    own payment for it was already SUCCEEDED (Steps 6-7's independent webhook call), so its"
-echo "    new booking-cancelled consumer should have issued a stub refund and transitioned it here."
+# ── Step 15: payment-service — real refund after booking-cancelled ───────────
+echo ">>> 15. GET /payments/bookings/$BOOKING_ID (payment-service, should be REFUNDED)"
+echo "    Step 9 cancelled this CONFIRMED booking, publishing booking-cancelled. payment-service's"
+echo "    own payment for it was already SUCCEEDED (Step 4's webhook call), so its"
+echo "    booking-cancelled consumer should have issued a stub refund and transitioned it here."
 for i in 1 2 3 4 5; do
   REFUND_RESPONSE=$(curl -s -w "\n%{http_code}" "$PAYMENT_BASE/payments/bookings/$BOOKING_ID")
   HTTP_CODE=$(echo "$REFUND_RESPONSE" | tail -1)

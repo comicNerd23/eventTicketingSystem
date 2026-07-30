@@ -23,7 +23,7 @@ public class PaymentInitiatedConsumer {
         this.objectMapper = objectMapper;
     }
 
-    @KafkaListener(topics = "payment-initiated", groupId = "payment-service-consumer-group")
+    @KafkaListener(topics = "payment-initiated", groupId = "payment-service-group")
     public void handlePaymentInitiated(String message) {
         log.debug("Received payment-initiated: {}", message);
         try {

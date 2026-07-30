@@ -23,7 +23,7 @@ public class BookingCancelledConsumer {
         this.objectMapper = objectMapper;
     }
 
-    @KafkaListener(topics = "booking-cancelled", groupId = "payment-service-consumer-group")
+    @KafkaListener(topics = "booking-cancelled", groupId = "payment-service-group")
     public void handleBookingCancelled(String message) {
         log.debug("Received booking-cancelled: {}", message);
         try {

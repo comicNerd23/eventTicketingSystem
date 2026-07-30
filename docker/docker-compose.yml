@@ -98,15 +98,6 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     restart: on-failure
 
-  payment-simulator:
-    build:
-      context: ../services/payment-simulator
-      dockerfile: Dockerfile
-    depends_on: [kafka]
-    environment:
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-    restart: on-failure
-
   notification-service:
     build:
       context: ../services/notification-service

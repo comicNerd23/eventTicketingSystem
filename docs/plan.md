@@ -12,7 +12,7 @@ Portfolio project (concerts/sports/shows) built with Spec-Driven Development to 
 |---|---|---|
 | 1 | Specs — OpenAPI 3.1 per service, AsyncAPI 2.x for Kafka, ADRs, C4 diagram | Done |
 | 2 | Scaffolding — Spring Boot stubs from specs, Docker Compose infra | Done |
-| 3 | Core backend — one service at a time, starting with booking-service | In progress |
+| 3 | Core backend — one service at a time, starting with booking-service | Done |
 | 4 | Angular frontend — SVG seat map, countdown timer, WebSocket | In progress |
 | 5 | DevOps — GitHub Actions CI/CD, K8s manifests, GCP Cloud Run | Not started |
 
@@ -61,15 +61,15 @@ Deferred to later slices: seat map generation (`GET /events/{eventId}/seats`), u
 
 ### payment-service — Slice 1 done
 
-- Kafka consumer on `payment-initiated` (own consumer group, `payment-service-consumer-group` — see note below) creates a `PENDING` `Payment` via a stubbed `PaymentGateway` (`StubPaymentGateway`, synchronously returns a fake `pi_stub_...` id — real Stripe SDK deferred; swappable later purely via `payment.gateway.provider` config, no caller changes).
+- Kafka consumer on `payment-initiated` (consumer group `payment-service-group` — see the retirement slice below for how this settled on the AsyncAPI-spec-literal name) creates a `PENDING` `Payment` via a stubbed `PaymentGateway` (`StubPaymentGateway`, synchronously returns a fake `pi_stub_...` id — real Stripe SDK deferred; swappable later purely via `payment.gateway.provider` config, no caller changes).
 - `GET /payments/{paymentId}`, `GET /payments/bookings/{bookingId}`
 - `POST /payments/webhook` — simplified trigger payload (`type`, `paymentIntentId`, optional `failureMessage`) standing in for a real Stripe event; `Stripe-Signature` header presence is enforced, cryptographic verification deferred. Transitions `PENDING` → `SUCCEEDED`/`FAILED`, publishes `payment-completed`/`payment-failed` accordingly.
 
-Spring Boot 4.1.0 / Java 25, real Postgres persistence (own database `ticketing_payments`). 27 tests passing: `PaymentRepositoryTest` (6), `PaymentServiceTest` (11), `PaymentControllerTest` (8), `PaymentSagaIntegrationTest` (2, Kafka+Postgres via Testcontainers, mirrors `BookingSagaIntegrationTest`'s spy-and-await pattern). Wired into `docker/docker-compose.yml` (port 8083) and `demo.sh` (steps 5-7, independent of and appended after the existing booking-service saga flow).
+Spring Boot 4.1.0 / Java 25, real Postgres persistence (own database `ticketing_payments`). 27 tests passing: `PaymentRepositoryTest` (6), `PaymentServiceTest` (11), `PaymentControllerTest` (8), `PaymentSagaIntegrationTest` (2, Kafka+Postgres via Testcontainers, mirrors `BookingSagaIntegrationTest`'s spy-and-await pattern). Wired into `docker/docker-compose.yml` (port 8083).
 
-**Not wired into the live saga yet**: `payment-simulator` still plays that role (unchanged, per explicit decision). Both now consume `payment-initiated` under distinct consumer groups — `payment-simulator` kept its existing groupId (`payment-service-group`, the literal the AsyncAPI spec documents for the real service), and `payment-service` was given `payment-service-consumer-group` instead, since giving both the same literal string would have made Kafka split partitions between them rather than deliver to both (a real collision, not just a naming nit). This means `specs/asyncapi/kafka-events.yaml`'s documented groupId for `payment-service` is temporarily held by `payment-simulator` — a known, deliberate inaccuracy while both coexist; reconcile once `payment-simulator` is retired.
+At this point still not wired into the live saga (`payment-simulator` played that role) — see the retirement slice near the end of this document for how that gap closed.
 
-Deferred to later slices: wiring payment-service into the real booking saga (replacing payment-simulator — must also stop payment-simulator at that point, or booking-service will receive `payment-completed`/`payment-failed` from both), real Stripe SDK integration behind `PaymentGateway` (webhook signature verification, real `PaymentIntent` creation).
+Deferred: real Stripe SDK integration behind `PaymentGateway` (webhook signature verification, real `PaymentIntent` creation).
 
 Also fixed while verifying end-to-end: a pre-existing Kafka partition-count race in `docker/docker-compose.yml`, unrelated to payment-service itself but only surfaced by adding a second independent consumer. `booking-service`'s `KafkaConfig` declares `NewTopic` beans requesting 3 partitions, but on a fresh broker a consumer (`payment-simulator` or `payment-service`) can auto-create the topic first via `KAFKA_AUTO_CREATE_TOPICS_ENABLE`, getting the broker's default of 1 partition; `KafkaAdmin` then only *increases* it to 3 once `booking-service` starts, and already-subscribed consumers stay pinned to partition 0 until their next metadata refresh (default 5 minutes) — so a booking whose key hashes to partition 1 or 2 would never be seen by a consumer stuck on partition 0. Fixed by setting `KAFKA_NUM_PARTITIONS: 3` as the broker's default, so whoever auto-creates the topic first gets the right partition count immediately — no race window at all.
 
@@ -81,7 +81,7 @@ Closes the last gap the AsyncAPI spec already documented: `booking-cancelled` wa
 
 19 new/updated tests: `PaymentServiceTest` (+4 — no payment found, still `PENDING`, already `REFUNDED`, `SUCCEEDED` → refunds and transitions), `PaymentSagaIntegrationTest` (+1, real Kafka+Postgres via Testcontainers — seeds a real `SUCCEEDED` payment via the existing webhook flow, publishes a real `booking-cancelled`, awaits `REFUNDED`). Wired into `demo.sh` as a new **Step 16** (appended at the end rather than renumbering 11-15, since it only depends on Step 10's cancel having already happened): confirms the same payment Steps 6-7 drove to `SUCCEEDED` is `REFUNDED` after Step 10's cancel — verified for real against the live Docker stack, not just tests.
 
-Remaining payment-service gap: still not wired into the live saga (`payment-simulator` unchanged), and no real Stripe SDK — both already tracked above.
+Remaining payment-service gap: no real Stripe SDK yet (already tracked above). Still riding on `payment-simulator` for the live saga at this point — see the retirement slice below.
 
 ### notification-service — Slice 1 done
 
@@ -252,7 +252,17 @@ Styling/architecture decision documented as `docs/adr/ADR-009-live-seat-updates.
 
 **Known limitation, documented rather than hidden** (see ADR-009 Consequences): no reconnect/backoff if the WebSocket connection drops — a real production gap accepted at this project's scope.
 
-**Next up:** retire `payment-simulator` and wire payment-service into the live saga.
+### payment-service — payment-simulator retired, wired into the live saga, done
+
+Closes the last item on this list. `payment-simulator` (one Kafka consumer, no persistence, no real logic — always a scaffolding device, never a real service from ADR-001's count) is deleted entirely from the repo. `payment-service` is now the sole live-saga participant.
+
+The retirement changed the saga's actual timing, not just which service is "really" running it: `payment-simulator` auto-completed a payment 600ms after `payment-initiated` with no webhook step at all, so a booking reached `CONFIRMED` almost immediately after `confirm`. `payment-service`'s real flow is genuinely two-phase — `payment-initiated` only creates a `PENDING` payment; an explicit `POST /payments/webhook` call (standing in for Stripe's real async callback) is what transitions it to `SUCCEEDED` and publishes `payment-completed`. `demo.sh` already exercised this exact webhook path, just previously as a redundant *second* check (old Steps 5-7) running after the simulator had already finished the saga in Step 4. Retiring the simulator meant restructuring `demo.sh` into one real two-phase flow instead of two parallel ones: hold → confirm → **poll payment-service's PENDING payment** → **webhook call (now the thing that actually finalizes the booking)** → poll booking `CONFIRMED` → ... (16 steps become 15). Verified for real, not assumed: the booking now demonstrably stays `PAYMENT_PENDING` through the payment-lookup step and only flips to `CONFIRMED` after the webhook call — the concrete proof the simulator's shortcut is gone.
+
+`payment-service`'s consumer group for both `PaymentInitiatedConsumer` and `BookingCancelledConsumer` moved from `payment-service-consumer-group` to the AsyncAPI-spec-literal `payment-service-group`, now that `payment-simulator` (which held that name to avoid a partition-split collision while both coexisted) no longer exists — `docs/plan.md` had already committed to this reconciliation "once payment-simulator is retired." `docker/docker-compose.yml`'s `payment-simulator` block is removed; no other service depended on it.
+
+No new backend logic, so no new tests — the existing `payment-service` suite (32 tests: repository/service/controller/2 saga integration tests) already covers `initiatePayment`/`handleWebhook`/`refundForCancelledBooking`, and a full re-run after the groupId rename confirmed nothing broke. Real verification was the actual point of this slice: rebuilt `payment-service`, brought the stack up with `--remove-orphans` (confirmed via `docker compose ps` that no `payment-simulator` container exists anymore), and ran the full restructured `demo.sh` end-to-end — all 15 steps passed, including the real refund check (Step 15) now depending on a payment that only became `SUCCEEDED` through the real webhook path.
+
+**Phase 3 (core backend) is now fully wired end-to-end** — no more "independent side-checks" standing in for real saga participation anywhere in the six services.
 
 ---
 
