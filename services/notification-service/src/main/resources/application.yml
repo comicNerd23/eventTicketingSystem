@@ -34,6 +34,16 @@ notification:
   sender:
     provider: stub
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
 logging:
   level:
     com.ticketing: DEBUG

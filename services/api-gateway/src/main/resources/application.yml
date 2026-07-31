@@ -57,6 +57,16 @@ waitlist:
   service:
     base-url: http://localhost:8085
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
 logging:
   level:
     com.ticketing: DEBUG

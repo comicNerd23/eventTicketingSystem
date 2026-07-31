@@ -143,5 +143,25 @@ services:
       WAITLIST_SERVICE_BASE_URL: http://waitlist-service:8085
     restart: on-failure
 
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    depends_on: [api-gateway, event-service, booking-service, payment-service, notification-service, waitlist-service]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    depends_on: [prometheus]
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+
 volumes:
   postgres_data:
