@@ -133,6 +133,24 @@ create_event \
   "Royal Albert Hall" "Kensington Gore" "London" "UK" \
   '[{"name": "Stalls", "rows": 10, "seatsPerRow": 20, "priceGbp": 95.00}, {"name": "Circle", "rows": 8, "seatsPerRow": 20, "priceGbp": 65.00}]'
 
+create_event \
+  "Beyonce: Renaissance World Tour" "Live at Tottenham Hotspur Stadium" "CONCERT" \
+  "2026-09-19T19:00:00Z" "2026-09-19T22:30:00Z" \
+  "Tottenham Hotspur Stadium" "782 High Road" "London" "UK" \
+  '[{"name": "Floor", "rows": 10, "seatsPerRow": 25, "priceGbp": 175.00}, {"name": "Lower Tier", "rows": 15, "seatsPerRow": 35, "priceGbp": 110.00}, {"name": "Upper Tier", "rows": 12, "seatsPerRow": 40, "priceGbp": 60.00}]'
+
+create_event \
+  "NBA London Game 2026" "Lakers vs Celtics" "SPORTS" \
+  "2026-11-15T18:30:00Z" "2026-11-15T21:00:00Z" \
+  "The O2 Arena" "Peninsula Square" "London" "UK" \
+  '[{"name": "Courtside", "rows": 3, "seatsPerRow": 10, "priceGbp": 400.00}, {"name": "Lower Bowl", "rows": 12, "seatsPerRow": 30, "priceGbp": 140.00}, {"name": "Upper Bowl", "rows": 15, "seatsPerRow": 35, "priceGbp": 70.00}]'
+
+create_event \
+  "Dua Lipa: Radical Optimism Tour" "Live at First Direct Arena" "CONCERT" \
+  "2026-08-27T19:30:00Z" "2026-08-27T22:00:00Z" \
+  "First Direct Arena" "Arena Way" "Leeds" "UK" \
+  '[{"name": "Floor", "rows": 8, "seatsPerRow": 22, "priceGbp": 95.00}, {"name": "Tier", "rows": 14, "seatsPerRow": 35, "priceGbp": 50.00}]'
+
 echo "========================================="
 echo "  Done"
 echo "========================================="
