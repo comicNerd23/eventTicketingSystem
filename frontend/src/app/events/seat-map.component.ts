@@ -29,9 +29,9 @@ interface SeatStatusMessage {
 }
 
 const SEAT_COLORS: Record<SeatStatus, string> = {
-  AVAILABLE: '#4caf50',
-  HELD: '#ffb300',
-  BOOKED: '#9e9e9e'
+  AVAILABLE: '#35c46b',
+  HELD: '#f2b544',
+  BOOKED: '#5c5468'
 };
 
 function groupBySection(seats: Seat[]): SeatSection[] {
@@ -74,6 +74,7 @@ export class SeatMapComponent {
 
   readonly data = signal<SeatMapData | null>(null);
   readonly loadError = signal<string | null>(null);
+  readonly openSections = signal<ReadonlySet<string>>(new Set());
 
   holdingSeatId: string | null = null;
   holdError: string | null = null;
@@ -83,11 +84,29 @@ export class SeatMapComponent {
       event: this.eventsApi.getEvent(this.eventId),
       seats: this.eventsApi.getSeatMap(this.eventId)
     }).subscribe({
-      next: ({ event, seats }) => this.data.set({ event, sections: groupBySection(seats) }),
+      next: ({ event, seats }) => {
+        const sections = groupBySection(seats);
+        this.data.set({ event, sections });
+        this.openSections.set(new Set(sections[0] ? [sections[0].name] : []));
+      },
       error: () => this.loadError.set('Could not load the seat map — please try again.')
     });
 
     this.connectLiveUpdates();
+  }
+
+  isSectionOpen(name: string): boolean {
+    return this.openSections().has(name);
+  }
+
+  toggleSection(name: string): void {
+    const next = new Set(this.openSections());
+    if (next.has(name)) {
+      next.delete(name);
+    } else {
+      next.add(name);
+    }
+    this.openSections.set(next);
   }
 
   seatColor(status: SeatStatus): string {

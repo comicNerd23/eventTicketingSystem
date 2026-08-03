@@ -1,70 +1,80 @@
 @if (error(); as err) {
-  <p class="error rounded-xl border border-red-100 bg-red-50 px-4 py-3 font-semibold text-red-600">{{ err }}</p>
+  <p class="error border border-n-danger bg-n-danger/10 px-4 py-3 font-semibold text-n-danger">{{ err }}</p>
 }
 
 @if (booking(); as b) {
-  <div class="mx-auto max-w-lg rounded-3xl border border-violet-100 bg-white p-6 shadow-sm sm:p-8">
-    <a routerLink="/" class="inline-flex items-center gap-1 text-sm font-medium text-violet-700 hover:text-violet-800">
-      <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <line x1="19" y1="12" x2="5" y2="12" />
-        <polyline points="12 19 5 12 12 5" />
-      </svg>
-      Back to events
-    </a>
+  <div class="mx-auto max-w-lg border border-n-hair bg-n-panel">
+    <div class="p-6 sm:p-8">
+      <a routerLink="/" class="inline-flex items-center gap-1 text-sm font-bold text-n-ink-dim transition hover:text-n-ink">
+        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="19" y1="12" x2="5" y2="12" />
+          <polyline points="12 19 5 12 12 5" />
+        </svg>
+        Back to events
+      </a>
 
-    <h1 class="mt-3 text-2xl font-extrabold tracking-tight text-gray-900">{{ b.eventTitle }}</h1>
-    <p class="seat mt-1 text-gray-600">Seat {{ b.seatLabel }} &ndash; &pound;{{ b.totalAmountGbp }}</p>
+      <h1 class="mt-4 font-display text-xl uppercase leading-tight text-n-ink sm:text-2xl">{{ b.eventTitle }}</h1>
+      <p class="seat mt-2 font-bold text-n-ink-dim">Seat {{ b.seatLabel }} &ndash; &pound;{{ b.totalAmountGbp }}</p>
+    </div>
 
     @switch (b.status) {
       @case ('HELD') {
-        <p [class]="countdownClasses()">Held &ndash; expires in {{ countdown() }}</p>
-        <div class="mt-2 h-2 w-full max-w-xs overflow-hidden rounded-full bg-gray-200">
-          <div [class]="progressBarClasses()" [style.width.%]="progressPercent()"></div>
+        <div class="border-t border-n-hair p-6 sm:p-8">
+          <p [class]="countdownClasses()">Held &ndash; expires in {{ countdown() }}</p>
+          <div class="mt-3 h-2 w-full max-w-xs bg-n-ground-2">
+            <div [class]="progressBarClasses()" [style.width.%]="progressPercent()"></div>
+          </div>
+          <div class="actions mt-6 flex flex-wrap gap-3">
+            <button
+              type="button"
+              (click)="confirm()"
+              [disabled]="confirming() || cancelling()"
+              class="font-display text-sm uppercase tracking-wide bg-n-pink text-n-ground px-5 py-2.5 transition-colors hover:bg-n-pink-bright disabled:cursor-default disabled:opacity-60">
+              {{ confirming() ? 'Confirming…' : 'Confirm & Pay (demo)' }}
+            </button>
+            <button
+              type="button"
+              (click)="cancel()"
+              [disabled]="confirming() || cancelling()"
+              class="font-display text-sm uppercase tracking-wide border-2 border-n-hair text-n-ink-dim px-5 py-2.5 transition-colors hover:border-n-ink-dim hover:text-n-ink disabled:cursor-default disabled:opacity-60">
+              {{ cancelling() ? 'Releasing…' : 'Release seat' }}
+            </button>
+          </div>
+          <p class="hint mt-4 text-sm text-n-ink-dim">
+            Payment is stubbed for this demo &mdash; "Confirm &amp; Pay" simulates a real card charge; no card details
+            are collected.
+          </p>
         </div>
-        <div class="actions mt-5 flex flex-wrap gap-3">
-          <button
-            type="button"
-            (click)="confirm()"
-            [disabled]="confirming() || cancelling()"
-            class="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-500 px-5 py-2.5 font-semibold text-white shadow-sm transition hover:shadow-md disabled:cursor-default disabled:opacity-60">
-            {{ confirming() ? 'Confirming…' : 'Confirm & Pay (demo)' }}
-          </button>
-          <button
-            type="button"
-            (click)="cancel()"
-            [disabled]="confirming() || cancelling()"
-            class="rounded-full border border-gray-300 px-5 py-2.5 font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-default disabled:opacity-60">
-            {{ cancelling() ? 'Releasing…' : 'Release seat' }}
-          </button>
-        </div>
-        <p class="hint mt-3 text-sm text-gray-500">
-          Payment is stubbed for this demo &mdash; "Confirm &amp; Pay" simulates a real card charge; no card details
-          are collected.
-        </p>
       }
       @case ('PAYMENT_PENDING') {
-        <p class="status pending mt-4 inline-flex items-center gap-2 rounded-full bg-indigo-100 px-4 py-2 font-semibold text-indigo-800">
-          Processing payment&hellip;
-        </p>
+        <div class="border-t border-n-hair p-6 sm:p-8">
+          <p class="status pending inline-flex items-center gap-2 border border-dashed border-n-hair bg-n-ground-2 px-4 py-2 font-mono text-sm font-bold text-n-ink-dim">
+            Processing payment&hellip;
+          </p>
+        </div>
       }
       @case ('CONFIRMED') {
-        <p class="status confirmed mt-4 inline-flex items-center gap-2 rounded-full bg-green-100 px-4 py-2 font-semibold text-green-800">
-          Booking confirmed!
-        </p>
-        <p class="ticket mt-3 text-lg text-gray-800">Ticket reference: <strong>{{ b.ticketReference }}</strong></p>
+        <div class="status confirmed bg-n-pink px-6 py-8 text-center text-n-ground sm:px-8">
+          <p class="text-xs font-extrabold uppercase tracking-[0.2em]">Booking confirmed</p>
+          <p class="ticket mt-2 font-display text-4xl tracking-wide sm:text-5xl">{{ b.ticketReference }}</p>
+        </div>
       }
       @case ('CANCELLED') {
-        <p class="status cancelled mt-4 inline-flex items-center gap-2 rounded-full bg-gray-100 px-4 py-2 font-semibold text-gray-600">
-          This booking was cancelled.
-        </p>
+        <div class="border-t border-n-hair p-6 sm:p-8">
+          <p class="status cancelled inline-flex items-center gap-2 border border-dashed border-n-hair bg-n-ground-2 px-4 py-2 font-mono text-sm font-bold text-n-ink-dim">
+            This booking was cancelled.
+          </p>
+        </div>
       }
       @case ('EXPIRED') {
-        <p class="status expired mt-4 inline-flex items-center gap-2 rounded-full bg-gray-100 px-4 py-2 font-semibold text-gray-600">
-          Your hold expired &ndash; the seat is available again.
-        </p>
+        <div class="border-t border-n-hair p-6 sm:p-8">
+          <p class="status expired inline-flex items-center gap-2 border border-dashed border-n-hair bg-n-ground-2 px-4 py-2 font-mono text-sm font-bold text-n-ink-dim">
+            Your hold expired &ndash; the seat is available again.
+          </p>
+        </div>
       }
     }
   </div>
 } @else if (!error()) {
-  <p class="mt-6 text-gray-500">Loading booking&hellip;</p>
+  <p class="mt-6 text-n-ink-dim">Loading booking&hellip;</p>
 }

@@ -88,7 +88,7 @@ describe('EventListComponent', () => {
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('Page 1 of 3');
+    expect(compiled.textContent).toContain('Page 1 / 3');
 
     const [previousButton, nextButton] = Array.from(compiled.querySelectorAll('.pagination button')) as HTMLButtonElement[];
     expect(previousButton.disabled).toBeTrue();

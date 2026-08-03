@@ -10,7 +10,7 @@ export class EventsApiService {
   private readonly http = inject(HttpClient);
 
   listEvents(page = 0): Observable<EventPage> {
-    return this.http.get<EventPage>(`${environment.apiBaseUrl}/events?page=${page}&size=10`);
+    return this.http.get<EventPage>(`${environment.apiBaseUrl}/events?page=${page}&size=9`);
   }
 
   getEvent(eventId: string): Observable<Event> {

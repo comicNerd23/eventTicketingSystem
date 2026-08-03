@@ -16,7 +16,7 @@ describe('NotFoundComponent', () => {
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('Page not found');
+    expect(compiled.textContent).toContain('Nothing on the wall here');
 
     const homeLink = compiled.querySelector('a');
     expect(homeLink?.getAttribute('href')).toBe('/');

@@ -140,10 +140,10 @@ describe('SeatMapComponent', () => {
     expect(rects.length).toBe(mockSeats.length);
 
     const heldRect = Array.from(rects).find((r) => r.getAttribute('class')?.includes('seat-held'));
-    expect(heldRect?.getAttribute('fill')).toBe('#ffb300');
+    expect(heldRect?.getAttribute('fill')).toBe('#f2b544');
 
     const bookedRect = Array.from(rects).find((r) => r.getAttribute('class')?.includes('seat-booked'));
-    expect(bookedRect?.getAttribute('fill')).toBe('#9e9e9e');
+    expect(bookedRect?.getAttribute('fill')).toBe('#5c5468');
   });
 
   it('renders each section heading with its per-seat price', async () => {
@@ -232,7 +232,7 @@ describe('SeatMapComponent', () => {
 
     const patchedRect = findRectByLabel(fixture, 'Floor-A1');
     expect(patchedRect.getAttribute('class')).toContain('seat-held');
-    expect(patchedRect.getAttribute('fill')).toBe('#ffb300');
+    expect(patchedRect.getAttribute('fill')).toBe('#f2b544');
 
     // The seat that was already HELD in the initial data is untouched by the push.
     const untouchedRect = findRectByLabel(fixture, 'Floor-A2');

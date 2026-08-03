@@ -67,22 +67,22 @@ export class BookingStatusComponent {
   countdownClasses(): string {
     switch (this.urgency()) {
       case 'critical':
-        return 'status held mt-4 inline-block rounded-md bg-red-100 px-3 py-2 font-semibold text-red-800 animate-pulse';
+        return 'status held mt-4 inline-block -rotate-2 bg-n-danger px-3.5 py-2 font-mono text-sm font-bold text-white animate-pulse';
       case 'warning':
-        return 'status held mt-4 inline-block rounded-md bg-orange-100 px-3 py-2 font-semibold text-orange-800';
+        return 'status held mt-4 inline-block -rotate-2 bg-n-warn px-3.5 py-2 font-mono text-sm font-bold text-n-ground';
       default:
-        return 'status held mt-4 inline-block rounded-md bg-amber-100 px-3 py-2 font-semibold text-amber-800';
+        return 'status held mt-4 inline-block -rotate-2 bg-n-pink px-3.5 py-2 font-mono text-sm font-bold text-n-ground';
     }
   }
 
   progressBarClasses(): string {
     switch (this.urgency()) {
       case 'critical':
-        return 'h-full rounded-full bg-red-500 transition-all';
+        return 'h-full bg-n-danger transition-all';
       case 'warning':
-        return 'h-full rounded-full bg-orange-500 transition-all';
+        return 'h-full bg-n-warn transition-all';
       default:
-        return 'h-full rounded-full bg-amber-500 transition-all';
+        return 'h-full bg-n-pink transition-all';
     }
   }
 

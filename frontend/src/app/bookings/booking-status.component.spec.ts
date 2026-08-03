@@ -98,7 +98,7 @@ describe('BookingStatusComponent', () => {
     const fixture = setup({ getBooking: () => of(nearlyExpired) });
 
     const statusEl = fixture.nativeElement.querySelector('.status.held') as HTMLElement;
-    expect(statusEl.className).toContain('bg-red-100');
+    expect(statusEl.className).toContain('bg-n-danger');
     expect(statusEl.className).toContain('animate-pulse');
   });
 

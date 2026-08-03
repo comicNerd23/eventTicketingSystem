@@ -1,141 +1,76 @@
-<section class="relative mb-10 overflow-hidden rounded-3xl bg-gradient-to-br from-violet-600 via-violet-600 to-fuchsia-500 px-6 py-14 text-white shadow-lg sm:px-12">
-  <div class="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-white/10 blur-3xl"></div>
-  <div class="pointer-events-none absolute -bottom-20 -left-10 h-56 w-56 rounded-full bg-fuchsia-400/30 blur-3xl"></div>
-  <div class="relative">
-    <h1 class="text-3xl font-extrabold tracking-tight sm:text-4xl">Find your next unforgettable event</h1>
-    <p class="mt-3 max-w-xl text-base text-violet-100 sm:text-lg">
-      Concerts, sports, theatre, and comedy &mdash; browse what's on and book your seat in seconds.
-    </p>
-  </div>
-</section>
+<div class="-mx-4 -mt-10 overflow-hidden px-4 pt-16 pb-8 sm:-mx-6 sm:-mt-14 sm:px-6 sm:pt-24">
+  <p class="text-xs font-bold uppercase tracking-[0.3em] text-n-pink">The wall is live</p>
+  <h1 class="mt-4 max-w-2xl font-display text-4xl uppercase leading-[0.94] text-n-ink sm:text-6xl lg:text-7xl">
+    Find your <span class="text-n-pink">next</span> night out.
+  </h1>
+  <p class="mt-6 max-w-md text-base leading-relaxed text-n-ink-dim sm:text-lg">
+    Concerts, sports, theatre, and comedy &mdash; browse what's on and book your seat in seconds.
+  </p>
+</div>
 
-<h2 class="text-2xl font-bold text-gray-900">Upcoming Events</h2>
+<div class="mt-10 flex items-baseline justify-between sm:mt-14">
+  <h2 class="font-display text-2xl uppercase tracking-wide text-n-ink">Upcoming Events</h2>
+  @if (eventPage(); as eventPage) {
+    <span class="font-mono text-sm text-n-ink-dim">{{ eventPage.totalElements }} events</span>
+  }
+</div>
+<div class="mt-4 h-px bg-n-hair"></div>
 
 @if (eventPage(); as eventPage) {
   @if (eventPage.content.length === 0) {
-    <p class="mt-10 text-center text-gray-500">No events found.</p>
+    <p class="mt-10 text-center text-n-ink-dim">No events found.</p>
   } @else {
-    <ul class="event-list mt-6 grid list-none gap-4 p-0 sm:grid-cols-2">
-      @for (event of eventPage.content; track event.id) {
-        <li class="event-card group rounded-2xl border border-violet-100 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-violet-100">
-          <div class="flex items-start gap-4">
-            @switch (event.category) {
-              @case ('CONCERT') {
-                <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-fuchsia-100 text-fuchsia-600">
-                  <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <circle cx="7" cy="17" r="2.2" />
-                    <circle cx="16" cy="15" r="2.2" />
-                    <line x1="9.2" y1="17" x2="9.2" y2="5" />
-                    <line x1="18.2" y1="15" x2="18.2" y2="3" />
-                    <line x1="9.2" y1="5" x2="18.2" y2="3" />
-                  </svg>
-                </span>
-              }
-              @case ('SPORTS') {
-                <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
-                  <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <rect x="8" y="4" width="8" height="7" rx="1" />
-                    <circle cx="6" cy="7" r="2" />
-                    <circle cx="18" cy="7" r="2" />
-                    <line x1="12" y1="11" x2="12" y2="15" />
-                    <line x1="9" y1="19" x2="15" y2="19" />
-                    <line x1="12" y1="15" x2="12" y2="19" />
-                  </svg>
-                </span>
-              }
-              @case ('THEATRE') {
-                <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600">
-                  <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <circle cx="9" cy="12" r="6" />
-                    <circle cx="15" cy="12" r="6" />
-                  </svg>
-                </span>
-              }
-              @case ('COMEDY') {
-                <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
-                  <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <rect x="9" y="3" width="6" height="10" rx="3" />
-                    <line x1="12" y1="13" x2="12" y2="19" />
-                    <line x1="8" y1="19" x2="16" y2="19" />
-                    <path d="M6 10a6 6 0 0 0 12 0" />
-                  </svg>
-                </span>
-              }
-              @default {
-                <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600">
-                  <svg viewBox="0 0 24 24" class="h-6 w-6" fill="currentColor" aria-hidden="true">
-                    <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z" />
-                  </svg>
-                </span>
-              }
-            }
+    <ul class="event-list mt-8 grid list-none gap-x-4 gap-y-8 p-0 sm:grid-cols-2 lg:grid-cols-3">
+      @for (event of eventPage.content; track event.id; let i = $index) {
+        <li
+          [class]="'event-card group relative flex min-h-[220px] flex-col justify-end p-5 text-n-ground transition-transform duration-150 hover:-translate-y-1 hover:rotate-0 ' + tileColorClass(event.category) + ' ' + tileRotationClass(i)">
+          <a [routerLink]="['/events', event.id]" class="absolute inset-0" [attr.aria-label]="event.title"></a>
 
-            <div class="min-w-0 flex-1">
-              <h2 class="flex flex-wrap items-center gap-2 text-lg font-bold leading-snug">
-                <a [routerLink]="['/events', event.id]" class="text-gray-900 group-hover:text-violet-700">{{ event.title }}</a>
-                <span class="category inline-block rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">
-                  {{ event.category }}
-                </span>
-              </h2>
-              <p class="venue mt-1 text-sm text-gray-600">{{ event.venueName }}, {{ event.city }}</p>
-              <p class="dates mt-1 text-sm text-gray-500">
-                {{ event.startsAt | date: 'medium' }} &ndash; {{ event.endsAt | date: 'medium' }}
-              </p>
+          <span class="category pointer-events-none absolute top-3.5 left-3.5 bg-black/15 px-2 py-1 text-[10.5px] font-extrabold uppercase tracking-wider">
+            {{ event.category }}
+          </span>
+          <span class="pointer-events-none absolute top-3.5 right-3.5 bg-n-ground px-2 py-1 font-mono text-[11px] font-bold text-n-ink">
+            {{ event.availableSeats }} left
+          </span>
 
-              <div class="mt-3">
-                <p class="availability text-xs text-gray-500">
-                  {{ event.availableSeats }} / {{ event.totalSeats }} seats available
-                </p>
-                <div class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
-                  <div
-                    class="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500"
-                    [style.width.%]="event.totalSeats ? (event.availableSeats / event.totalSeats) * 100 : 0">
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <h3 class="pointer-events-none font-display text-xl leading-[0.98] uppercase">{{ event.title }}</h3>
+          <p class="pointer-events-none mt-2 text-[13px] font-bold opacity-85">{{ event.venueName }}, {{ event.city }}</p>
+          <p class="pointer-events-none mt-1 text-[11px] font-bold uppercase tracking-wide opacity-70">
+            {{ event.startsAt | date: 'd MMM y' }}
+          </p>
         </li>
       }
     </ul>
 
     @if (eventPage.totalPages > 1) {
-      <div class="pagination mt-8 flex items-center justify-center gap-3">
+      <div class="pagination mt-12 flex items-center justify-center gap-4">
         <button
           type="button"
           (click)="previousPage()"
           [disabled]="eventPage.page === 0"
-          class="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-white px-4 py-2 text-sm font-medium text-violet-700 shadow-sm transition hover:bg-violet-50 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-white">
-          Previous
+          class="font-display text-sm uppercase tracking-wide text-n-ink border-2 border-n-pink px-6 py-2.5 transition-colors hover:bg-n-pink hover:text-n-ground disabled:cursor-default disabled:border-n-hair disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-n-ink">
+          &larr; Prev
         </button>
-        <span class="text-sm font-medium text-gray-500">Page {{ eventPage.page + 1 }} of {{ eventPage.totalPages }}</span>
+        <span class="border border-dashed border-n-hair bg-n-ground-2 px-4 py-2 font-mono text-xs font-bold text-n-ink-dim">
+          Page {{ eventPage.page + 1 }} / {{ eventPage.totalPages }}
+        </span>
         <button
           type="button"
           (click)="nextPage()"
           [disabled]="eventPage.page + 1 >= eventPage.totalPages"
-          class="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-white px-4 py-2 text-sm font-medium text-violet-700 shadow-sm transition hover:bg-violet-50 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-white">
-          Next
+          class="font-display text-sm uppercase tracking-wide text-n-ink border-2 border-n-pink px-6 py-2.5 transition-colors hover:bg-n-pink hover:text-n-ground disabled:cursor-default disabled:border-n-hair disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-n-ink">
+          Next &rarr;
         </button>
       </div>
     }
   }
 } @else {
   @if (loadError(); as err) {
-    <p class="mt-6 rounded-xl border border-red-100 bg-red-50 px-4 py-3 font-semibold text-red-600">{{ err }}</p>
+    <p class="mt-6 border border-n-danger bg-n-danger/10 px-4 py-3 font-semibold text-n-danger">{{ err }}</p>
   } @else {
-    <ul class="skeleton mt-6 grid list-none gap-4 p-0 sm:grid-cols-2" aria-label="Loading events">
-      @for (i of [1, 2, 3, 4]; track i) {
-        <li class="animate-pulse rounded-2xl border border-violet-100 bg-white p-5">
-          <div class="flex items-start gap-4">
-            <div class="h-12 w-12 shrink-0 rounded-xl bg-gray-200"></div>
-            <div class="min-w-0 flex-1">
-              <div class="h-5 w-2/3 rounded bg-gray-200"></div>
-              <div class="mt-2 h-4 w-1/2 rounded bg-gray-200"></div>
-              <div class="mt-2 h-4 w-2/5 rounded bg-gray-200"></div>
-              <div class="mt-3 h-1.5 w-full rounded-full bg-gray-100"></div>
-            </div>
-          </div>
-        </li>
+    <ul class="skeleton mt-8 grid list-none gap-x-4 gap-y-8 p-0 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading events">
+      @for (i of [1, 2, 3, 4, 5, 6]; track i) {
+        <li class="min-h-[220px] animate-pulse bg-n-ground-2"></li>
       }
     </ul>
   }
