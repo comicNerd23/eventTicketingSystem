@@ -336,6 +336,14 @@ New `seed-events.sh` at the repo root: truncates event-service's `venues`/`secti
 
 No new automated tests — this is dev/demo tooling, not application logic. Verified by reading the reseeded catalog back via `GET /events` (10 distinct titles, no duplicates) and by screenshotting the real frontend events list via a headless-Chrome CDP session, confirming genuine variety (titles, category badges, cities, per-event seat counts) rendered from live backend data.
 
+### 2026-08-03 — demo.sh / seed-events.sh ported to Node (demo.js / seed-events.js), done
+
+Surfaced by the user running the project on Windows Command Prompt: `demo.sh` and `seed-events.sh` are bash scripts (`grep -o`, `cut -d`, `sed -n`, `./` execution syntax) with no native cmd.exe equivalent — they only ran via Git Bash/WSL. Rather than just documenting the Git Bash workaround, ported both scripts to plain Node (`demo.js`, `seed-events.js`, no dependencies — Node 18+'s built-in `fetch` covers every HTTP call; `seed-events.js` shells out to `docker exec ... psql` for the truncate via `child_process.execFileSync`, same as the bash version did). Node was already a hard requirement for the frontend, so this removes the Windows-specific tooling gap without adding a new toolchain dependency. The old `.sh` files were deleted rather than kept alongside the `.js` versions, to avoid two implementations drifting out of sync.
+
+Not an architectural change — pure dev-tooling portability, no ADR. No automated tests (same category as the original scripts). Verified for real: ran `node seed-events.js` against the live stack (truncated + recreated all 13 events, `totalElements: 13` confirmed), then `node demo.js` end-to-end (all 15 steps produced the same output shape as the bash version, full saga reached `CONFIRMED` → cancelled → refunded → waitlist promoted), then re-ran `node seed-events.js` to clean up the one extra "Coldplay" event `demo.js` adds by design (same documented behavior as the old `demo.sh` had).
+
+**Note**: this session found `docs/plan.md` hadn't been updated for the metrics-observability slice (ADR-012, Actuator/Micrometer/Prometheus/Grafana) or the frontend visual makeover from the prior session — both are done and committed (`27d01c3`, `fe9fed4`) but have no dated entry here yet. Flagged, not fixed, as out of scope for this slice.
+
 ---
 
 ## Outstanding housekeeping
