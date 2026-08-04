@@ -30,6 +30,27 @@ function fail(message) {
   process.exit(1);
 }
 
+async function waitForHealthy(url, { retries = 30, delayMs = 2000 } = {}) {
+  log(`>>> Waiting for event-service (${url}) to be healthy`);
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const body = await res.json().catch(() => undefined);
+        if (!body || body.status === "UP") {
+          log("    OK");
+          log("");
+          return;
+        }
+      }
+    } catch {
+      // event-service isn't accepting connections yet — keep polling.
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  fail(`event-service did not become healthy at ${url} after ${retries} attempts`);
+}
+
 async function call(method, url, body) {
   const res = await fetch(url, {
     method,
@@ -203,6 +224,8 @@ async function main() {
   log("  Reseeding event-service demo catalog");
   log("=========================================");
   log("");
+
+  await waitForHealthy(`${EVENT_BASE}/actuator/health`);
 
   log(">>> Truncating venues/events/sections/seats in ticketing_events");
   execFileSync(
