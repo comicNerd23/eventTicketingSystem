@@ -16,6 +16,10 @@ application-local.properties
 # VS Code
 .vscode/
 
+# Claude Code MCP config (local IDE bridge, machine-specific port)
+.mcp.json
+.claude/settings.local.json
+
 # Angular
 frontend/node_modules/
 frontend/dist/
