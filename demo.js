@@ -205,9 +205,10 @@ async function main() {
   log("    Reaches CONFIRMED because a webhook published payment-completed and booking-service");
   log("    consumed it — typically the stub's own self-delivered webhook from Step 3's ~1s");
   log("    delay, with Step 4's manual call as a no-op backup if it hasn't landed yet.");
-  const finalRes = await call("GET", `${BASE}/bookings/${bookingId}`, {
-    headers: { "X-User-Id": USER_ID },
-  });
+  const finalRes = await poll(
+    () => call("GET", `${BASE}/bookings/${bookingId}`, { headers: { "X-User-Id": USER_ID } }),
+    (res) => res.json?.status === "CONFIRMED"
+  );
   log(`HTTP ${finalRes.status}`);
   log(finalRes.text);
   const status = finalRes.json?.status;

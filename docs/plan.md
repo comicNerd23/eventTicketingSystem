@@ -382,6 +382,14 @@ Deliberately deferred as separate future slices rather than bundled in: distribu
 
 Small reliability fix, not a new slice: `seed-events.js` (the Node port from the Phase 4 tooling arc above) could hit event-service right as its container started but before the Spring app context was fully up, producing a raw socket-reset error instead of a useful message. Now polls `/actuator/health` first — made possible by the Actuator dependency the metrics slice above already added to every service — and fails with a clear timeout message if the service never comes up, instead of a confusing low-level connection error.
 
+### 2026-08-26 — demo.js Step 5 race condition, fixed
+
+**Found by actually re-running `demo.js` against the live stack, not by reading the code alone**: Step 5's own printed "Result" summary reported `PAYMENT_PENDING` with a WARN, even though the saga had genuinely succeeded — every step after it (Step 7's notification already carrying the real ticket reference, Step 9 successfully cancelling a `CONFIRMED`-only-eligible booking) proved the booking really did reach `CONFIRMED` moments later.
+
+**Root cause**: unlike Steps 3, 7, 10, 11, and 12, Step 5 read the booking with a single one-shot `call()` instead of the script's own `poll()` helper — so it checked before the async chain (webhook → `payment-completed` on Kafka → booking-service's consumer → `CONFIRMED`) had finished, a pure timing race in the script itself, not a backend bug. Fixed by wrapping Step 5's read in `poll()` with `isDone: res => res.json?.status === "CONFIRMED"`, matching the pattern already used everywhere else in the script.
+
+Verified by re-running `node seed-events.js && node demo.js` twice end-to-end post-fix: all 15 steps report `SUCCESS` with zero `WARN`/`ERROR` lines, `Status: CONFIRMED` with a real ticket reference every time.
+
 **Next up**: CI/CD (GitHub Actions) — build/test pipeline for the 6 Spring Boot services + Angular frontend. Sequenced before distributed tracing so the pipeline can catch regressions from the Kafka-header changes tracing will require. K8s manifests (`k8s/base`, `k8s/overlays/{dev,prod}`) and GCP Cloud Run deploy remain fully unstarted after that.
 
 ---
