@@ -13,8 +13,8 @@ Portfolio project (concerts/sports/shows) built with Spec-Driven Development to 
 | 1 | Specs — OpenAPI 3.1 per service, AsyncAPI 2.x for Kafka, ADRs, C4 diagram | Done |
 | 2 | Scaffolding — Spring Boot stubs from specs, Docker Compose infra | Done |
 | 3 | Core backend — one service at a time, starting with booking-service | Done |
-| 4 | Angular frontend — SVG seat map, countdown timer, WebSocket | In progress |
-| 5 | DevOps — GitHub Actions CI/CD, K8s manifests, GCP Cloud Run | Not started |
+| 4 | Angular frontend — SVG seat map, countdown timer, WebSocket | Done |
+| 5 | DevOps — GitHub Actions CI/CD, K8s manifests, GCP Cloud Run | In progress |
 
 Phase order and scope are unchanged from the original plan. What's new is the delivery rule below, which governs how work inside phases 3 and 4 gets broken up and checkpointed.
 
@@ -342,7 +342,45 @@ Surfaced by the user running the project on Windows Command Prompt: `demo.sh` an
 
 Not an architectural change — pure dev-tooling portability, no ADR. No automated tests (same category as the original scripts). Verified for real: ran `node seed-events.js` against the live stack (truncated + recreated all 13 events, `totalElements: 13` confirmed), then `node demo.js` end-to-end (all 15 steps produced the same output shape as the bash version, full saga reached `CONFIRMED` → cancelled → refunded → waitlist promoted), then re-ran `node seed-events.js` to clean up the one extra "Coldplay" event `demo.js` adds by design (same documented behavior as the old `demo.sh` had).
 
-**Note**: this session found `docs/plan.md` hadn't been updated for the metrics-observability slice (ADR-012, Actuator/Micrometer/Prometheus/Grafana) or the frontend visual makeover from the prior session — both are done and committed (`27d01c3`, `fe9fed4`) but have no dated entry here yet. Flagged, not fixed, as out of scope for this slice.
+### 2026-07-31 — 3 more seed events, done
+
+Added 3 more events (10 → 13) purely so the frontend's real pagination (added in the events-list-polish slice above, `size=10`) has a second page to actually land on during manual testing — 10 events exactly filled page 1 with nothing on page 2. Extended `seed-events.sh` (bash, pre-Node-port) rather than `demo.sh`, since these are catalog seed data, not saga-flow steps. Along the way, found and fixed a real bug: an accented character ("é") in one seed event's title broke event-service's JSON parsing when submitted via Git Bash/curl, due to encoding handling in that shell path — not an event-service bug itself, worked around in the seed script's invocation.
+
+No new automated tests — dev/demo tooling, same category as the rest of `seed-events.sh`. Verified by reseeding and confirming `GET /events` returned all 13 with two real pages in the frontend.
+
+### 2026-07-31 — Angular frontend visual makeover (violet/fuchsia design system), done
+
+First full visual redesign pass across every view (events list, seat map, booking status, app shell, 404) — purely presentational, no logic changes. Violet/fuchsia gradient design system, Manrope font, a hero band on the events list, hand-authored SVG category icons, and restyled card layouts throughout. All 32 existing frontend tests passed unmodified, consistent with this being a pure-CSS/template pass with no status-class or copy changes.
+
+**Superseded three days later** by the Night Market redesign below — this makeover tested badly with the user ("does not appeal to me... for most of the userbase") once seen live rather than just built. Left as a dated entry here for the historical record rather than erased, since it was a real, deliberately-built (if short-lived) slice.
+
+### 2026-08-03 — Angular frontend "Night Market" redesign, done
+
+Replaces the violet/fuchsia makeover above after the user rejected it on sight. Process change adopted here and going forward for subjective/visual work: before touching real code, three distinct full-mockup directions (Marquee/vintage-theatre, Box Office/functional-ledger, Night Market/festival-poster-wall) were built and published as a Claude Artifact for the user to compare side-by-side; user picked **Night Market**. A follow-up round then mocked three seat-map framing variants specifically (Halftone Stamp, Colour-Blocked Sections, Ticket-Stub Accordion) the same way; user picked **Stub Accordion**. Both rounds were also smoke-tested live in the browser before implementation, not just eyeballed as static mockups.
+
+Implemented across every view: dark aubergine ground, category-colored rotated poster tiles, Impact display font, a stub-accordion seat map (first section open by default, others collapsed, real Angular signal-based toggle state — not just CSS `:hover`/`:checked`), pink stamp badges for booking states that escalate to amber/red as a hold nears expiry, a poster-block treatment for `CONFIRMED`, and a dashed rotated-card 404 page. Design tokens centralized via Tailwind v4's `@theme` in `styles.css` rather than scattered literal color classes, so the palette has one source of truth if it needs to change again.
+
+Also fixed in passing: the events grid renders 3 columns, but page size was still the `size=10` set in the earlier pagination slice — 10 doesn't divide evenly into rows of 3, so the last row of a page was always partially empty. Changed to `size=9` so every full page lands as clean rows.
+
+All 32 existing frontend tests kept passing through the redesign; a handful of tests asserting exact copy/color-class strings tied to the old design were deliberately updated to match the new intentional copy/colors, each flagged individually rather than silently changed. Browser extension automation wasn't connected this session, so verification used headless Chrome CLI screenshots plus raw CDP WebSocket scripts instead (device-metrics override for mobile viewport checks, `Runtime.evaluate` to confirm the accordion's signal-driven toggle actually fires and that Tailwind's `rotate` utility was genuinely applying despite `getComputedStyle(...).transform` reading `'none'`).
+
+**This closes out Phase 4** — no functional or visual work remains queued for the frontend; the phase table above now reflects Done.
+
+---
+
+## Phase 5 progress
+
+### 2026-07-31 — metrics observability stack (Actuator + Micrometer + Prometheus + Grafana), done
+
+First Phase 5 slice, documented as `docs/adr/ADR-012-observability-metrics-stack.md`. Spring Boot Actuator + Micrometer wired into all 6 services, scraped by Prometheus, visualized in an auto-provisioned Grafana dashboard ("Ticketing Platform Overview"). Verified live in-browser against real data produced by a full `demo.sh` run, not synthetic/sample data.
+
+Deliberately deferred as separate future slices rather than bundled in: distributed tracing (Micrometer Tracing + Zipkin, propagating trace context through Kafka headers across the saga — flagged as higher blast radius since it touches all six services, which is why CI/CD is sequenced ahead of it), Kafka broker/consumer-lag metrics, centralized logging, K8s health-probe tuning, alerting.
+
+### 2026-08-04 — seed-events.js waits for event-service health before seeding, done
+
+Small reliability fix, not a new slice: `seed-events.js` (the Node port from the Phase 4 tooling arc above) could hit event-service right as its container started but before the Spring app context was fully up, producing a raw socket-reset error instead of a useful message. Now polls `/actuator/health` first — made possible by the Actuator dependency the metrics slice above already added to every service — and fails with a clear timeout message if the service never comes up, instead of a confusing low-level connection error.
+
+**Next up**: CI/CD (GitHub Actions) — build/test pipeline for the 6 Spring Boot services + Angular frontend. Sequenced before distributed tracing so the pipeline can catch regressions from the Kafka-header changes tracing will require. K8s manifests (`k8s/base`, `k8s/overlays/{dev,prod}`) and GCP Cloud Run deploy remain fully unstarted after that.
 
 ---
 
