@@ -2,7 +2,7 @@
 
 Portfolio project (concerts/sports/shows) built with Spec-Driven Development to demonstrate Kafka/event-driven architecture, microservices, and full-stack (Spring Boot + Angular) skills.
 
-**Stack:** Spring Boot 4.1.0 · Java 25 · Spring Cloud Gateway · Apache Kafka · PostgreSQL (per service) · Redis · Angular 19 · Tailwind CSS 4 · Docker/K8s · GCP Cloud Run · Stripe sandbox · Testcontainers 1.21.4
+**Stack:** Spring Boot 4.1.0 · Java 25 · Spring Cloud Gateway · Apache Kafka · PostgreSQL (per service) · Redis · Angular 20 · Tailwind CSS 4 · Docker/K8s · GCP Cloud Run · Stripe sandbox · Testcontainers 1.21.4
 
 ---
 
@@ -195,6 +195,8 @@ First frontend slice: prove the frontend↔gateway↔backend path works end-to-e
 **CORS at api-gateway**: `spring.cloud.gateway.server.webflux.globalcors.cors-configurations` in `application.yml`, config-only (no new Java class), scoped to `http://localhost:4200` (Angular's dev-server default) rather than `*` — allows GET/POST/PUT/DELETE/OPTIONS and all headers. Deliberately deferred out of the api-gateway slice itself since no frontend existed yet to need it.
 
 **Angular version pinned to 19** (documented here the same way the Spring Cloud version pairing was — a concrete version pinned because it's what the environment actually supports, not an assumption): the newest Angular CLI (22.x) and even 20/21.x refuse to run on this machine's real Node v22.18.0 (`engines` requires `^20.19.0 || ^22.12.0 || >=24.0.0` or newer). Angular 19.x (`node: ^18.19.1 || ^20.11.1 || >=22.0.0`) is the newest version that actually runs here, and is still within the "Angular 17+" the original stack line named.
+
+**Update, 2026-08-26**: this Node constraint has since resolved on its own — the machine now runs Node v24.19.0 (was v22.18.0 when the pin above was written), which satisfies the `>=24.0.0` branch of the range that previously blocked 20.x. Upgraded via `ng update @angular/core@20 @angular/cli@20` (19.2.25 → 20.3.29, CLI → 20.3.35): `package.json`/`angular.json` updated, `node_modules` reinstalled, the CLI's own migration schematics ran automatically (workspace-generation-defaults, `moduleResolution: bundler`, a few no-op deprecation-usage migrations). Declined the three *optional* migrations offered (`use-application-builder` — already on the esbuild application builder since Slice 4; `control-flow-migration` — the codebase already writes `@for`/`@if`, not `*ngFor`/`*ngIf`; `router-current-navigation` — `Router.getCurrentNavigation` isn't used anywhere in this codebase). `ng build` and all 32 `ng test` cases pass unchanged — pure dependency bump, no application code needed to change.
 
 **Events list feature** (`frontend/src/app/events/`): standalone `EventListComponent` (root route) + `EventsApiService` (`inject(HttpClient)`, one method `listEvents()` → `GET {apiBaseUrl}/events` through the gateway) + TypeScript interfaces matching event-service's real `EventResponse`/`EventPageResponse` JSON shape. `environment.ts`/`environment.development.ts` carry `apiBaseUrl: 'http://localhost:8080'` (the gateway, not event-service directly). Renders via `async` pipe + `@for`, plain CSS card grid, no styling framework yet.
 
