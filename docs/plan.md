@@ -18,6 +18,8 @@ Portfolio project (concerts/sports/shows) built with Spec-Driven Development to 
 
 Phase order and scope are unchanged from the original plan. What's new is the delivery rule below, which governs how work inside phases 3 and 4 gets broken up and checkpointed.
 
+**Correction, 2026-08-26**: Phase 1's row above has said "Done" — including the C4 diagram — since this table was first written, but no C4 diagram actually existed anywhere in the repo until today. Found during a fresh read-through of the repo aimed at a new-developer onboarding pass (the OpenAPI/AsyncAPI specs and ADRs part of that row were genuinely done). Closed now: see [`docs/diagrams/c4-diagram.md`](diagrams/c4-diagram.md) (Context + Container levels, Mermaid). Also added a root [`README.md`](../README.md) — there previously wasn't one, which was the bigger of the two onboarding gaps.
+
 ---
 
 ## Delivery rule: testable slices
