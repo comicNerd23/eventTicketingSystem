@@ -1,4 +1,4 @@
-import { TestBed, fakeAsync, tick } from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
 
@@ -54,7 +54,7 @@ describe('BookingStatusComponent', () => {
 
   it('confirm() calls the API and re-renders with the returned status', () => {
     const pending: Booking = { ...heldBooking, status: 'PAYMENT_PENDING' };
-    const confirmBooking = jasmine.createSpy().and.returnValue(of(pending));
+    const confirmBooking = vi.fn().mockReturnValue(of(pending));
     const fixture = setup({ getBooking: () => of(heldBooking), confirmBooking });
 
     const [confirmButton]: HTMLButtonElement[] = fixture.nativeElement.querySelectorAll('button');
@@ -78,7 +78,7 @@ describe('BookingStatusComponent', () => {
   });
 
   it('surfaces an inline error if confirm() fails, without throwing', () => {
-    const confirmBooking = jasmine.createSpy().and.returnValue(throwError(() => new Error('conflict')));
+    const confirmBooking = vi.fn().mockReturnValue(throwError(() => new Error('conflict')));
     const fixture = setup({ getBooking: () => of(heldBooking), confirmBooking });
 
     const [confirmButton]: HTMLButtonElement[] = fixture.nativeElement.querySelectorAll('button');
@@ -102,26 +102,32 @@ describe('BookingStatusComponent', () => {
     expect(statusEl.className).toContain('animate-pulse');
   });
 
-  it('re-fetches the booking once the countdown reaches zero, picking up EXPIRED', fakeAsync(() => {
-    const expiringNow: Booking = {
-      ...heldBooking,
-      holdExpiresAt: new Date(Date.now() - 1000).toISOString()
-    };
-    const expiredBooking: Booking = { ...heldBooking, status: 'EXPIRED', expiredAt: new Date().toISOString() };
-    const getBooking = jasmine.createSpy().and.returnValues(of(expiringNow), of(expiredBooking));
+  it('re-fetches the booking once the countdown reaches zero, picking up EXPIRED', () => {
+    // Vitest's fake timers replace fakeAsync/tick here (the Angular unit-test builder's
+    // Vitest runner doesn't support zone.js's fakeAsync — see angular/angular#66150).
+    // The component's countdown runs on an RxJS interval(1000), which uses the same
+    // global setInterval that vi.useFakeTimers() intercepts.
+    vi.useFakeTimers();
+    try {
+      const expiringNow: Booking = {
+        ...heldBooking,
+        holdExpiresAt: new Date(Date.now() - 1000).toISOString()
+      };
+      const expiredBooking: Booking = { ...heldBooking, status: 'EXPIRED', expiredAt: new Date().toISOString() };
+      const getBooking = vi.fn().mockReturnValueOnce(of(expiringNow)).mockReturnValueOnce(of(expiredBooking));
 
-    const fixture = setup({ getBooking });
-    expect(getBooking).toHaveBeenCalledTimes(1);
+      const fixture = setup({ getBooking });
+      expect(getBooking).toHaveBeenCalledTimes(1);
 
-    tick(1000);
-    fixture.detectChanges();
+      vi.advanceTimersByTime(1000);
+      fixture.detectChanges();
 
-    expect(getBooking).toHaveBeenCalledTimes(2);
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Your hold expired');
+      expect(getBooking).toHaveBeenCalledTimes(2);
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('Your hold expired');
 
-    // Destroy while still inside the fakeAsync zone so the component's interval(1000)
-    // subscription (cleaned up via takeUntilDestroyed) doesn't trip fakeAsync's
-    // pending-periodic-timer check on teardown.
-    fixture.destroy();
-  }));
+      fixture.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

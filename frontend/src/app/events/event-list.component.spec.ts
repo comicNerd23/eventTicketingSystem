@@ -83,7 +83,7 @@ describe('EventListComponent', () => {
 
   it('shows pagination controls and requests the next page on click', () => {
     const multiPage: EventPage = { ...mockPage, totalPages: 3, page: 0 };
-    const listEvents = jasmine.createSpy().and.returnValue(of(multiPage));
+    const listEvents = vi.fn().mockReturnValue(of(multiPage));
     const fixture = setup({ listEvents });
     fixture.detectChanges();
 
@@ -91,8 +91,8 @@ describe('EventListComponent', () => {
     expect(compiled.textContent).toContain('Page 1 / 3');
 
     const [previousButton, nextButton] = Array.from(compiled.querySelectorAll('.pagination button')) as HTMLButtonElement[];
-    expect(previousButton.disabled).toBeTrue();
-    expect(nextButton.disabled).toBeFalse();
+    expect(previousButton.disabled).toBe(true);
+    expect(nextButton.disabled).toBe(false);
 
     nextButton.click();
 

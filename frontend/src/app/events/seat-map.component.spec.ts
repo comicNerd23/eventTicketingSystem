@@ -152,8 +152,8 @@ describe('SeatMapComponent', () => {
 
     const compiled = fixture.nativeElement as HTMLElement;
     const headings = Array.from(compiled.querySelectorAll('h2')).map((h) => h.textContent);
-    expect(headings.some((text) => text?.includes('Floor') && text?.includes('£120'))).toBeTrue();
-    expect(headings.some((text) => text?.includes('Upper Tier') && text?.includes('£60'))).toBeTrue();
+    expect(headings.some((text) => text?.includes('Floor') && text?.includes('£120'))).toBe(true);
+    expect(headings.some((text) => text?.includes('Upper Tier') && text?.includes('£60'))).toBe(true);
   });
 
   it('wraps each section grid in a horizontally-scrollable container so the page never overflows', async () => {
@@ -185,13 +185,13 @@ describe('SeatMapComponent', () => {
       ticketReference: null,
       createdAt: new Date().toISOString()
     };
-    const holdSeat = jasmine.createSpy().and.returnValue(of(mockBooking));
+    const holdSeat = vi.fn().mockReturnValue(of(mockBooking));
 
     const fixture = await setup({ holdSeat });
     fixture.detectChanges();
 
     const router = TestBed.inject(Router);
-    const navigateSpy = spyOn(router, 'navigate');
+    const navigateSpy = vi.spyOn(router, 'navigate');
 
     const availableRect = Array.from(fixture.nativeElement.querySelectorAll('rect')).find((r) =>
       (r as SVGRectElement).getAttribute('class')?.includes('seat-available')
@@ -204,7 +204,7 @@ describe('SeatMapComponent', () => {
   });
 
   it('shows an inline error and stays on the page if the seat was already taken', async () => {
-    const holdSeat = jasmine.createSpy().and.returnValue(throwError(() => new Error('conflict')));
+    const holdSeat = vi.fn().mockReturnValue(throwError(() => new Error('conflict')));
 
     const fixture = await setup({ holdSeat });
     fixture.detectChanges();
