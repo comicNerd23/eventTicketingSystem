@@ -76,8 +76,8 @@ export class SeatMapComponent {
   readonly loadError = signal<string | null>(null);
   readonly openSections = signal<ReadonlySet<string>>(new Set());
 
-  holdingSeatId: string | null = null;
-  holdError: string | null = null;
+  readonly holdingSeatId = signal<string | null>(null);
+  readonly holdError = signal<string | null>(null);
 
   constructor() {
     forkJoin({
@@ -120,7 +120,7 @@ export class SeatMapComponent {
     } else {
       classes.push('cursor-default');
     }
-    if (seat.id === this.holdingSeatId) {
+    if (seat.id === this.holdingSeatId()) {
       classes.push('seat-holding', 'opacity-60');
     }
     return classes.join(' ');
@@ -135,18 +135,18 @@ export class SeatMapComponent {
   }
 
   selectSeat(seat: Seat): void {
-    if (seat.status !== 'AVAILABLE' || this.holdingSeatId) {
+    if (seat.status !== 'AVAILABLE' || this.holdingSeatId()) {
       return;
     }
 
-    this.holdingSeatId = seat.id;
-    this.holdError = null;
+    this.holdingSeatId.set(seat.id);
+    this.holdError.set(null);
 
     this.bookingApi.holdSeat(this.eventId, seat.id).subscribe({
       next: (booking) => this.router.navigate(['/bookings', booking.id]),
       error: () => {
-        this.holdError = 'That seat was just taken by someone else — please pick another.';
-        this.holdingSeatId = null;
+        this.holdError.set('That seat was just taken by someone else — please pick another.');
+        this.holdingSeatId.set(null);
       }
     });
   }
