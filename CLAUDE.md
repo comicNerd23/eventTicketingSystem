@@ -11,7 +11,7 @@ A portfolio project: an event ticketing system (concerts, sports, theatre, comed
 The repo documents itself more than this file can — always check these before assuming behavior:
 
 - `docs/plan.md` — authoritative, dated project history: every slice, every real bug found and how it was fixed, current phase status. Read this to understand *why* the code looks the way it does.
-- `docs/adr/` — 14 Architecture Decision Records with the reasoning behind every non-obvious choice.
+- `docs/adr/` — 16 Architecture Decision Records with the reasoning behind every non-obvious choice.
 - `docs/diagrams/c4-diagram.md` — C4 Context + Container diagrams (Mermaid).
 - `specs/asyncapi/kafka-events.yaml` — the event catalog: every Kafka topic, publisher, consumer.
 - `specs/openapi/` — REST contract per service.
@@ -50,6 +50,8 @@ cd frontend
 npx ng test
 ```
 
+**CI locally** — `ci.js` runs exactly what `.github/workflows/ci.yml` runs per job (ADR-015): `node ci.js <service> [--docker]`, `node ci.js frontend`, `node ci.js all`. Testcontainers should use the local Docker runtime rather than Testcontainers Cloud (free plan capped at 50 min/month).
+
 Local service ports: api-gateway 8080 · event-service 8081 · booking-service 8082 · payment-service 8083 · notification-service 8084 · waitlist-service 8085 · Kafdrop 9000 · Prometheus 9090 · Grafana 3000 (admin/admin).
 
 ## Architecture
@@ -70,6 +72,6 @@ Before "fixing" something that looks wrong, check `docs/adr/` — several appare
 
 ## Current status
 
-Phases 1–4 (specs, scaffolding, core backend, frontend) are done. Phase 5 (DevOps: CI/CD, K8s, Cloud Run) is in progress — check `docs/plan.md` for exactly what's shipped vs. next; the phase table there is more current than anything else.
+Phases 1–4 (specs, scaffolding, core backend, frontend) are done. Phase 5 (DevOps: CI/CD, K8s, dev on Rancher Desktop + prod on k3s per ADR-016) is in progress — check `docs/plan.md` for exactly what's shipped vs. next; the phase table there is more current than anything else.
 
 Work is delivered in small, independently checkable end-to-end vertical slices (see "Delivery rule: testable slices" in `docs/plan.md`) — each slice must produce an observable, verifiable result (a real request/response or demo step), not just code + unit tests, and pauses for review before the next slice starts.

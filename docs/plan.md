@@ -2,7 +2,7 @@
 
 Portfolio project (concerts/sports/shows) built with Spec-Driven Development to demonstrate Kafka/event-driven architecture, microservices, and full-stack (Spring Boot + Angular) skills.
 
-**Stack:** Spring Boot 4.1.0 · Java 25 · Spring Cloud Gateway · Apache Kafka · PostgreSQL (per service) · Redis · Angular 21 (zoneless, Vitest) · Tailwind CSS 4 · Docker/K8s · GCP Cloud Run · Stripe sandbox · Testcontainers 1.21.4
+**Stack:** Spring Boot 4.1.0 · Java 25 · Spring Cloud Gateway · Apache Kafka · PostgreSQL (per service) · Redis · Angular 21 (zoneless, Vitest) · Tailwind CSS 4 · Docker/K8s (Rancher Desktop dev, k3s prod) · GitHub Actions · Stripe sandbox · Testcontainers 1.21.4
 
 ---
 
@@ -14,7 +14,7 @@ Portfolio project (concerts/sports/shows) built with Spec-Driven Development to 
 | 2 | Scaffolding — Spring Boot stubs from specs, Docker Compose infra | Done |
 | 3 | Core backend — one service at a time, starting with booking-service | Done |
 | 4 | Angular frontend — SVG seat map, countdown timer, WebSocket | Done |
-| 5 | DevOps — GitHub Actions CI/CD, K8s manifests, GCP Cloud Run | In progress |
+| 5 | DevOps — GitHub Actions CI/CD, K8s manifests, dev (Rancher Desktop) + prod (k3s) environments — see ADR-016 (replaces the original GCP Cloud Run target) | In progress |
 
 Phase order and scope are unchanged from the original plan. What's new is the delivery rule below, which governs how work inside phases 3 and 4 gets broken up and checkpointed.
 
@@ -416,10 +416,47 @@ No automated migration schematic exists for this either (a claimed `ng generate 
 
 **Real end-to-end verification, not just tests — again via headless Chrome + raw CDP** (extension not connected this session): confirmed `window.Zone === undefined` in the live running app, then exercised the two riskiest paths against the real backend stack (which needed `docker compose up -d` first — `postgres`/`redis`/`zookeeper`/`kafka` had exited since the last session and `event-service` was 500ing on the composed-availability call to a not-yet-started `booking-service`, both resolved by bringing the full stack up and letting it finish its ~95s cold-start). A real synthetic click on a genuinely `AVAILABLE` seat drove the actual happy path (`POST /bookings/hold` → success → `router.navigate` → real booking page with a live "9:59" countdown) with zero zone.js involved. For the conflict path specifically — the one behavior the signal conversion above exists to fix — held a real seat via a direct API call first, then used Angular's `window.ng.getComponent()` dev-mode helper to invoke `SeatMapComponent.selectSeat()` directly with a deliberately stale "AVAILABLE" seat object (the real UI can't reproduce this race through a click once the map correctly re-renders the seat as `HELD`, so this reproduces the same concurrent-user race a click normally guards against): the real backend returned a real `409`, and `"That seat was just taken by someone else — please pick another."` rendered correctly — proving the exact zoneless-risk path this ADR called out actually works. Both test bookings were cancelled afterward (`POST /bookings/{id}/cancel`) to leave demo data clean.
 
-**Next up**: CI/CD (GitHub Actions) — build/test pipeline for the 6 Spring Boot services + Angular frontend. Sequenced before distributed tracing so the pipeline can catch regressions from the Kafka-header changes tracing will require. K8s manifests (`k8s/base`, `k8s/overlays/{dev,prod}`) and GCP Cloud Run deploy remain fully unstarted after that.
+### 2026-09-29 — CI pipeline (GitHub Actions) with local parity, plus dev/prod environment decision
+
+Two requirements shaped this slice beyond "have a pipeline": it must be testable **locally and in the cloud**, and it must stay **free**. Documented as `docs/adr/ADR-015-ci-pipeline-and-local-testing.md` (six local-testing options weighed, A–F).
+
+**Chosen: one entry point, `ci.js`** (repo root, dependency-free Node like `seed-events.js`). `node ci.js <service> [--docker]` runs `mvn -B -ntp verify` (+ `docker build` of that service's Dockerfile); `node ci.js frontend` runs `npm ci`, `ng test --watch=false`, `ng build`; `services`/`all` run everything. `.github/workflows/ci.yml` runs *exactly* these commands per job, so local/CI parity holds by construction instead of two definitions kept in sync by hand.
+
+**Cost facts checked, not assumed**: the GitHub repo is private (GitHub Free: 2,000 Actions min/month, Actions stops at quota rather than billing without a payment method). Local Testcontainers runs go through Testcontainers Desktop (`tc.host` in `~/.testcontainers.properties` points at its proxy in either mode). Only its Cloud runtime is subject to the 50 min/month cap noted under Outstanding housekeeping, so ADR-015 option D standardises CI-like local runs on Desktop's local Docker runtime. In the workflow: `dorny/paths-filter` per target (a booking-service-only change runs only booking-service; a change to `ci.js`/the workflow runs everything), `concurrency` with `cancel-in-progress`, Maven/npm caching, no image push, Surefire reports uploaded only on failure. Testcontainers in CI uses the runner's own Docker.
+
+One real issue found by running it: Node 24 emits `DEP0190` when an args array is combined with `shell: true` (needed on Windows for the `mvn`/`npm` `.cmd` shims). Fixed by passing a single joined command string to the shell on Windows only.
+
+**Verified locally** (Windows): `node ci.js api-gateway --docker` → 7/7 tests + Docker image build, PASS; `node ci.js frontend` → 32/32 tests + production build, PASS. **Negative test**: deliberately broke one assertion in `RoutingIntegrationTest` → `ci.js` exited 1 and named `api-gateway` as the failed target; the change was reverted. `node ci.js services` with Testcontainers Desktop on the local Docker runtime, confirmed via `testcontainers/ryuk` and fresh `postgres:15-alpine` containers appearing in local `docker ps`: all six PASS, 201 tests total. Per service:
+
+| Service | Tests | Time |
+|---|---|---|
+| api-gateway | 7 | 36s |
+| event-service | 35 | 116s |
+| booking-service | 68 | 202s |
+| payment-service | 33 | 120s |
+| notification-service | 35 | 97s |
+| waitlist-service | 23 | 94s |
+
+Not yet verified: the first real GitHub Actions run, which happens on push.
+
+**Dev/prod environment decision** (`docs/adr/ADR-016-environments-dev-prod.md`, decision only — no code in this slice): LocalStack and Floci were considered for dev (vendor pages checked 2026-09-29):
+- LocalStack's only free plan since 2026.03 is non-commercial *Hobby*, which excludes RDS/ECS/ElastiCache/EKS/MSK.
+- Floci (MIT, no token) does emulate all five with real engine containers.
+- Neither was chosen: the services call no AWS APIs, and an AWS prod (MSK, EKS control plane, Fargate) isn't free. Floci is kept as the documented fallback if prod ever moves to AWS.
+- Oracle's Always Free A1 allowance was halved to 2 OCPU / 12 GB on 2026-06-15. That still fits the stack, but the prod VM is arm64, which means multi-arch images. GCP Cloud Run is also dropped: scale-to-zero breaks Kafka consumers, and Cloud SQL/Memorystore aren't free. **Dev = local Kubernetes on Rancher Desktop, prod = k3s on a free VM**, same images and manifests, differing only in the existing `k8s/overlays/{dev,prod}`. Rancher Manager is an optional later slice.
+
+**Next up** — the dev/prod roadmap from ADR-016, one slice at a time:
+- (a) Per-environment Spring config: env vars, `application-dev.yml`/`application-prod.yml`, Flyway with `ddl-auto: validate` in prod.
+- (b) K8s base manifests.
+- (c) Containerized frontend.
+- (d) Dev deploy script against Rancher Desktop.
+- (e) Prod deploy: Secrets, registry, deploy job.
+- (f) Optional: Rancher Manager.
+
+Distributed tracing still follows once the pipeline is running in GitHub Actions.
 
 ---
 
 ## Outstanding housekeeping
 
-- Testcontainers Cloud free plan is capped at 50 min/month — reserve integration test runs for genuine breakage or final pre-commit verification, not speculative re-runs.
+- Testcontainers Cloud free plan is capped at 50 min/month — reserve integration test runs for genuine breakage or final pre-commit verification, not speculative re-runs. Since ADR-015, CI-like local runs (`node ci.js …`) should use Testcontainers Desktop's local Docker runtime instead, which is free and unlimited; GitHub Actions never uses Testcontainers Cloud.

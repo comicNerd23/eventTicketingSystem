@@ -25,7 +25,7 @@ go deeper as needed:
 | Where | What's there |
 |---|---|
 | [`docs/plan.md`](docs/plan.md) | The authoritative project history — every slice, every real bug found (and how it was fixed), current phase status. Read this to understand *why* the code looks the way it does, not just what it does. |
-| [`docs/adr/`](docs/adr/) | 14 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
+| [`docs/adr/`](docs/adr/) | 16 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
 | [`docs/diagrams/c4-diagram.md`](docs/diagrams/c4-diagram.md) | C4 Context + Container diagrams. |
 | [`specs/asyncapi/kafka-events.yaml`](specs/asyncapi/kafka-events.yaml) | The event catalog — every Kafka topic, who publishes it, who consumes it. More useful than any single service's code for understanding the whole system. |
 | [`specs/openapi/`](specs/openapi/) | The REST contract per service. |
@@ -82,12 +82,27 @@ cd services/<service-name>
 mvn test
 ```
 
-Frontend:
+Frontend (Vitest):
 
 ```bash
 cd frontend
-npx ng test --watch=false --browsers=ChromeHeadless
+npx ng test --watch=false
 ```
+
+### Running CI locally
+
+`ci.js` is the same entry point GitHub Actions (`.github/workflows/ci.yml`)
+uses, so a green local run means a green CI job — see
+[ADR-015](docs/adr/ADR-015-ci-pipeline-and-local-testing.md):
+
+```bash
+node ci.js booking-service --docker   # mvn verify + docker build for one service
+node ci.js frontend                   # npm ci, ng test, ng build
+node ci.js all                        # every service + frontend
+```
+
+For free, unlimited local runs, point Testcontainers Desktop at the local
+Docker runtime rather than Testcontainers Cloud.
 
 ## Project layout
 

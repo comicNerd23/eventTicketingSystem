@@ -66,6 +66,18 @@ cat package.json   # confirm test runner (Vitest as of the Karma migration)
 npx ng test
 ```
 
+CI locally — same commands the GitHub Actions workflow runs (ADR-015):
+
+```bash
+node ci.js <service-name> --docker   # mvn verify + docker build
+node ci.js frontend                  # npm ci + ng test + ng build (stop ng serve first:
+                                     # npm ci wipes node_modules, locked files on Windows)
+node ci.js all
+```
+
+Testcontainers: prefer the local Docker runtime over Testcontainers Cloud
+(free plan capped at 50 min/month) — `ci.js` warns when `tc.host` is set.
+
 ## Notes
 
 - This is a choreographed (Kafka event-driven), not orchestrated, saga architecture — booking/payment/waitlist/notification services react to events rather than being called directly. Keep that in mind when debugging a flow that "isn't working" — check Kafdrop (localhost:9000) for the actual event trail before assuming a service bug.
