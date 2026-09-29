@@ -437,7 +437,20 @@ One real issue found by running it: Node 24 emits `DEP0190` when an args array i
 | notification-service | 35 | 97s |
 | waitlist-service | 23 | 94s |
 
-Not yet verified: the first real GitHub Actions run, which happens on push.
+**First real GitHub Actions run** (run `36619557282`, push of `49485e1`): green, **3m24s wall-clock**. Every target ran because the workflow file itself was new, as intended. The logs confirm that Testcontainers connected to the runner's own Docker, with no Testcontainers Cloud involved.
+
+| Job | Tests | Duration | Billed |
+|---|---|---|---|
+| changes | — | 0:08 | 1 min |
+| api-gateway | 7 | 1:25 | 2 min |
+| event-service | 35 | 2:24 | 3 min |
+| booking-service | 68 | 2:59 | 3 min |
+| payment-service | 33 | 3:02 | 4 min |
+| notification-service | 35 | 3:09 | 4 min |
+| waitlist-service | 23 | 2:50 | 3 min |
+| frontend | 32 | 0:28 | 1 min |
+
+GitHub rounds each job up to the full minute. A full run therefore costs **~21 of the 2,000 free minutes**, below the ~25 estimated in ADR-015. A typical single-service change costs about 4–5 minutes (the `changes` job plus one service).
 
 **Dev/prod environment decision** (`docs/adr/ADR-016-environments-dev-prod.md`, decision only — no code in this slice): LocalStack and Floci were considered for dev (vendor pages checked 2026-09-29):
 - LocalStack's only free plan since 2026.03 is non-commercial *Hobby*, which excludes RDS/ECS/ElastiCache/EKS/MSK.
