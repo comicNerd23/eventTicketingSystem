@@ -22,7 +22,7 @@ The repo documents itself more than this file can — always check these before 
 # Bring up all 6 services + infra (Postgres, Redis, Kafka, Prometheus, Grafana)
 docker compose -f docker/docker-compose.yml up -d
 
-# Reset to a clean demo catalog (12 events across concerts/sports/theatre/comedy)
+# Reset to a clean demo catalog (13 events across concerts/sports/theatre/comedy)
 node seed-events.js
 
 # Walk the full happy-path saga end-to-end (hold -> confirm -> payment -> CONFIRMED -> cancel -> refund -> waitlist promotion)
