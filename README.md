@@ -25,7 +25,7 @@ go deeper as needed:
 | Where | What's there |
 |---|---|
 | [`docs/plan.md`](docs/plan.md) | The authoritative project history — every slice, every real bug found (and how it was fixed), current phase status. Read this to understand *why* the code looks the way it does, not just what it does. |
-| [`docs/adr/`](docs/adr/) | 16 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
+| [`docs/adr/`](docs/adr/) | 17 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
 | [`docs/diagrams/c4-diagram.md`](docs/diagrams/c4-diagram.md) | C4 Context + Container diagrams. |
 | [`specs/asyncapi/kafka-events.yaml`](specs/asyncapi/kafka-events.yaml) | The event catalog — every Kafka topic, who publishes it, who consumes it. More useful than any single service's code for understanding the whole system. |
 | [`specs/openapi/`](specs/openapi/) | The REST contract per service. |
@@ -103,6 +103,22 @@ node ci.js all                        # every service + frontend
 
 For free, unlimited local runs, point Testcontainers Desktop at the local
 Docker runtime rather than Testcontainers Cloud.
+
+## Configuration and environments
+
+Each service has `application.yml` (shared), `application-dev.yml` (local
+defaults, the default profile) and `application-prod.yml` (every connection
+value required from the environment: `DB_URL`, `DB_PASSWORD`,
+`KAFKA_BOOTSTRAP_SERVERS`, …). Flyway owns the database schema
+(`src/main/resources/db/migration`); Hibernate only validates it, so every
+entity change needs a new migration. See
+[ADR-017](docs/adr/ADR-017-per-environment-config-and-flyway.md).
+
+To run the local stack with the prod profile:
+
+```bash
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod-profile.yml up -d
+```
 
 ## Project layout
 

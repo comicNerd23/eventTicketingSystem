@@ -11,7 +11,7 @@ A portfolio project: an event ticketing system (concerts, sports, theatre, comed
 The repo documents itself more than this file can — always check these before assuming behavior:
 
 - `docs/plan.md` — authoritative, dated project history: every slice, every real bug found and how it was fixed, current phase status. Read this to understand *why* the code looks the way it does.
-- `docs/adr/` — 16 Architecture Decision Records with the reasoning behind every non-obvious choice.
+- `docs/adr/` — 17 Architecture Decision Records with the reasoning behind every non-obvious choice.
 - `docs/diagrams/c4-diagram.md` — C4 Context + Container diagrams (Mermaid).
 - `specs/asyncapi/kafka-events.yaml` — the event catalog: every Kafka topic, publisher, consumer.
 - `specs/openapi/` — REST contract per service.
@@ -63,6 +63,8 @@ Local service ports: api-gateway 8080 · event-service 8081 · booking-service 8
 **Redis SETNX + TTL for seat holds** (ADR-003): `booking-service`'s `SeatHoldService` uses Redis as a distributed lock with expiry to hold a seat during checkout, backstopped by `SeatHoldExpiredListener` reacting to Redis key-expiry events. This is the mechanism to understand before touching anything in the hold → confirm → expire path.
 
 **Layered architecture per service** (ADR-005): controllers → services → repositories, no reverse dependencies, enforced by convention/review rather than tooling. JPA entities carry annotations directly (no hexagonal port/adapter split). Each service follows the same package shape: `controller/`, `domain/`, `dto/`, `exception/` (with a `GlobalExceptionHandler`), `kafka/consumer/` + `kafka/producer/`, `repository/`, `service/`, plus service-specific packages (`redis/`, `websocket/`, `client/` for cross-service REST calls).
+
+**Per-environment config + Flyway** (ADR-017): each service has `application.yml` (shared), `application-dev.yml` (default profile, local defaults) and `application-prod.yml` (connection values as `${VAR}` with no default; a prod-only `config/RequiredConfigurationCheck` makes a missing variable fail at startup, because Boot's binding otherwise leaves unresolved placeholders in place). Flyway owns the schema (`src/main/resources/db/migration`) and `ddl-auto` is `validate` everywhere — **any entity change needs a new `V<n>__*.sql` migration**, or every test that touches the database fails. Local prod-profile check: add `-f docker/docker-compose.prod-profile.yml`.
 
 **UUIDv4 primary keys everywhere** (ADR-006), including cross-service foreign-key fields (`Booking.eventId`, `Booking.userId`, etc.) — there is no auto-increment ID anywhere in the domain model.
 

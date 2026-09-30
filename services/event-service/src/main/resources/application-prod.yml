@@ -1,0 +1,12 @@
+# Prod: every connection setting must come from the environment. No defaults on purpose —
+# a missing variable stops startup with "Could not resolve placeholder" instead of silently
+# connecting to localhost or using a dev password.
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+booking:
+  service:
+    base-url: ${BOOKING_SERVICE_BASE_URL}

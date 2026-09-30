@@ -1,0 +1,18 @@
+# Prod: every connection setting must come from the environment. No defaults on purpose —
+# a missing variable stops startup with "Could not resolve placeholder" instead of silently
+# connecting to localhost or using a dev password.
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+
+event:
+  service:
+    base-url: ${EVENT_SERVICE_BASE_URL}

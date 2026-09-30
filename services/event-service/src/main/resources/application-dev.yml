@@ -1,0 +1,17 @@
+# Local development defaults — each value can still be overridden by its env var.
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ticketing_events}
+    username: ${DB_USERNAME:ticketing}
+    password: ${DB_PASSWORD:ticketing}
+  flyway:
+    # Dev databases created earlier by ddl-auto=update already match V1; baseline them there.
+    baseline-on-migrate: true
+
+booking:
+  service:
+    base-url: ${BOOKING_SERVICE_BASE_URL:http://localhost:8082}
+
+logging:
+  level:
+    com.ticketing: DEBUG

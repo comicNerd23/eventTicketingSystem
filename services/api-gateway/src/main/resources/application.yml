@@ -1,9 +1,14 @@
+# Settings shared by every environment. Downstream URLs and the CORS origin live in
+# application-dev.yml (local defaults) and application-prod.yml (required env vars) — see ADR-017.
 server:
   port: 8080
 
 spring:
   application:
     name: api-gateway
+  profiles:
+    # Local runs, docker compose and the test suites need no flag; prod sets SPRING_PROFILES_ACTIVE=prod.
+    default: dev
   cloud:
     gateway:
       server:
@@ -36,26 +41,9 @@ spring:
           globalcors:
             cors-configurations:
               '[/**]':
-                allowedOrigins: "http://localhost:4200"
+                allowedOrigins: "${gateway.cors.allowed-origins}"
                 allowedMethods: [GET, POST, PUT, DELETE, OPTIONS]
                 allowedHeaders: "*"
-
-event:
-  service:
-    base-url: http://localhost:8081
-booking:
-  service:
-    base-url: http://localhost:8082
-    ws-base-url: ws://localhost:8082
-payment:
-  service:
-    base-url: http://localhost:8083
-notification:
-  service:
-    base-url: http://localhost:8084
-waitlist:
-  service:
-    base-url: http://localhost:8085
 
 management:
   endpoints:
@@ -69,5 +57,5 @@ management:
 
 logging:
   level:
-    com.ticketing: DEBUG
+    com.ticketing: INFO
     org.springframework.cloud.gateway: INFO

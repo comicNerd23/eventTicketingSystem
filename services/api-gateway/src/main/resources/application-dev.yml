@@ -1,0 +1,25 @@
+# Local development defaults — each value can still be overridden by its env var.
+gateway:
+  cors:
+    allowed-origins: ${GATEWAY_CORS_ALLOWED_ORIGINS:http://localhost:4200}
+
+event:
+  service:
+    base-url: ${EVENT_SERVICE_BASE_URL:http://localhost:8081}
+booking:
+  service:
+    base-url: ${BOOKING_SERVICE_BASE_URL:http://localhost:8082}
+    ws-base-url: ${BOOKING_SERVICE_WS_BASE_URL:ws://localhost:8082}
+payment:
+  service:
+    base-url: ${PAYMENT_SERVICE_BASE_URL:http://localhost:8083}
+notification:
+  service:
+    base-url: ${NOTIFICATION_SERVICE_BASE_URL:http://localhost:8084}
+waitlist:
+  service:
+    base-url: ${WAITLIST_SERVICE_BASE_URL:http://localhost:8085}
+
+logging:
+  level:
+    com.ticketing: DEBUG

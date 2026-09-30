@@ -44,6 +44,17 @@ cd frontend && npm install && npx ng serve
 # -> http://localhost:4200
 ```
 
+Services default to the `dev` Spring profile. To run the stack with the
+`prod` profile locally (ADR-017), add the override file:
+
+```bash
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod-profile.yml up -d
+```
+
+Prod refuses to baseline a pre-Flyway database, so start once in dev first
+against an old volume. Switch back by running the plain `up -d` again with
+`--force-recreate` for the six app services.
+
 If containers look broken after a host restart, check
 `docker compose -f docker/docker-compose.yml ps -a` — infra containers
 can sit `Exited` while app containers crash-loop against them. Bring

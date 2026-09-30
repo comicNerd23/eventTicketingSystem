@@ -1,0 +1,34 @@
+# Runs the local stack with the Spring "prod" profile instead of "dev" (ADR-017), to check
+# prod configuration locally before there is a real prod environment:
+#
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod-profile.yml up -d
+#
+# In prod every connection value must come from the environment (no defaults), the schema is
+# only validated (Flyway, no baseline-on-migrate) and logging is INFO. The base compose file
+# already passes DB_*, KAFKA_*, REDIS_* and *_SERVICE_BASE_URL; this file adds only what prod
+# needs on top. The local dev password is still used here — real secrets arrive with the
+# prod deployment slice (ADR-016 (e)).
+#
+# Note: prod refuses to baseline an existing schema. Against a dev database created before
+# Flyway, start the stack once without this file first so the dev profile baselines it.
+
+services:
+  event-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+  booking-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+  payment-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+  notification-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+  waitlist-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+  api-gateway:
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      GATEWAY_CORS_ALLOWED_ORIGINS: http://localhost:4200

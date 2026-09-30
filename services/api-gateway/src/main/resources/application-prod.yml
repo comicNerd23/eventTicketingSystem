@@ -1,0 +1,24 @@
+# Prod: every downstream URL and the CORS origin must come from the environment. No defaults
+# on purpose — a missing variable stops startup with "Could not resolve placeholder" instead
+# of silently routing to localhost.
+gateway:
+  cors:
+    # Comma-separated list, e.g. https://tickets.example.com
+    allowed-origins: ${GATEWAY_CORS_ALLOWED_ORIGINS}
+
+event:
+  service:
+    base-url: ${EVENT_SERVICE_BASE_URL}
+booking:
+  service:
+    base-url: ${BOOKING_SERVICE_BASE_URL}
+    ws-base-url: ${BOOKING_SERVICE_WS_BASE_URL}
+payment:
+  service:
+    base-url: ${PAYMENT_SERVICE_BASE_URL}
+notification:
+  service:
+    base-url: ${NOTIFICATION_SERVICE_BASE_URL}
+waitlist:
+  service:
+    base-url: ${WAITLIST_SERVICE_BASE_URL}

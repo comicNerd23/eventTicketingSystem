@@ -1,29 +1,28 @@
+# Settings shared by every environment. Connection settings live in application-dev.yml
+# (local defaults) and application-prod.yml (required env vars, no defaults) — see ADR-017.
 server:
   port: 8081
 
 spring:
   application:
     name: event-service
+  profiles:
+    # Local runs, docker compose and the test suites need no flag; prod sets SPRING_PROFILES_ACTIVE=prod.
+    default: dev
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/ticketing_events
-    username: ticketing
-    password: ticketing
     driver-class-name: org.postgresql.Driver
 
   jpa:
     hibernate:
-      ddl-auto: update
+      # Flyway owns the schema (db/migration); Hibernate only checks the entities against it.
+      ddl-auto: validate
     show-sql: false
     open-in-view: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: false
-
-booking:
-  service:
-    base-url: http://localhost:8082
 
 management:
   endpoints:
@@ -37,5 +36,5 @@ management:
 
 logging:
   level:
-    com.ticketing: DEBUG
+    com.ticketing: INFO
     org.hibernate.SQL: WARN

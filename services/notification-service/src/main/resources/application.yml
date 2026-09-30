@@ -1,19 +1,22 @@
+# Settings shared by every environment. Connection settings live in application-dev.yml
+# (local defaults) and application-prod.yml (required env vars, no defaults) — see ADR-017.
 server:
   port: 8084
 
 spring:
   application:
     name: notification-service
+  profiles:
+    # Local runs, docker compose and the test suites need no flag; prod sets SPRING_PROFILES_ACTIVE=prod.
+    default: dev
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/ticketing_notifications
-    username: ticketing
-    password: ticketing
     driver-class-name: org.postgresql.Driver
 
   jpa:
     hibernate:
-      ddl-auto: update
+      # Flyway owns the schema (db/migration); Hibernate only checks the entities against it.
+      ddl-auto: validate
     show-sql: false
     open-in-view: false
     properties:
@@ -22,7 +25,6 @@ spring:
         format_sql: false
 
   kafka:
-    bootstrap-servers: localhost:9092
     consumer:
       group-id: notification-service-consumer-group
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
@@ -46,6 +48,6 @@ management:
 
 logging:
   level:
-    com.ticketing: DEBUG
+    com.ticketing: INFO
     org.springframework.kafka: WARN
     org.hibernate.SQL: WARN

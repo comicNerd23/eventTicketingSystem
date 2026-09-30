@@ -1,19 +1,22 @@
+# Settings shared by every environment. Connection settings live in application-dev.yml
+# (local defaults) and application-prod.yml (required env vars, no defaults) — see ADR-017.
 server:
   port: 8085
 
 spring:
   application:
     name: waitlist-service
+  profiles:
+    # Local runs, docker compose and the test suites need no flag; prod sets SPRING_PROFILES_ACTIVE=prod.
+    default: dev
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/ticketing_waitlist
-    username: ticketing
-    password: ticketing
     driver-class-name: org.postgresql.Driver
 
   jpa:
     hibernate:
-      ddl-auto: update
+      # Flyway owns the schema (db/migration); Hibernate only checks the entities against it.
+      ddl-auto: validate
     show-sql: false
     open-in-view: false
     properties:
@@ -22,7 +25,6 @@ spring:
         format_sql: false
 
   kafka:
-    bootstrap-servers: localhost:9092
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -33,10 +35,6 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       auto-offset-reset: earliest
       enable-auto-commit: true
-
-event:
-  service:
-    base-url: http://localhost:8081
 
 waitlist:
   offer:
@@ -54,6 +52,6 @@ management:
 
 logging:
   level:
-    com.ticketing: DEBUG
+    com.ticketing: INFO
     org.springframework.kafka: WARN
     org.hibernate.SQL: WARN

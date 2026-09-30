@@ -1,0 +1,23 @@
+# Local development defaults — each value can still be overridden by its env var.
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ticketing}
+    username: ${DB_USERNAME:ticketing}
+    password: ${DB_PASSWORD:ticketing}
+  flyway:
+    # Dev databases created earlier by ddl-auto=update already match V1; baseline them there.
+    baseline-on-migrate: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+event:
+  service:
+    base-url: ${EVENT_SERVICE_BASE_URL:http://localhost:8081}
+
+logging:
+  level:
+    com.ticketing: DEBUG
