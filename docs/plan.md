@@ -485,6 +485,21 @@ Documented as `docs/adr/ADR-017-per-environment-config-and-flyway.md`.
 
 A brief DNS outage during the image rebuild ("lookup registry-1.docker.io: no such host") failed one build. It was retried unchanged once connectivity returned; it was not a code issue.
 
+**GitHub Actions run** (run `36679585229`, push of `e39a240`): green, about **3m wall-clock**. The local test run above happened *before* `RequiredConfigurationCheck` was added; this CI run is the first full-suite run with it in place. The logs show Flyway applying V1 to a fresh Postgres in every database-backed test class.
+
+| Job | Tests | Flyway V1 applied | Duration | Billed |
+|---|---|---|---|---|
+| changes | — | — | 0:04 | 1 min |
+| api-gateway | 7 | — (no DB) | 0:56 | 1 min |
+| event-service | 35 | 5× | 1:59 | 2 min |
+| booking-service | 68 | 4× | 2:53 | 3 min |
+| payment-service | 33 | 2× | 2:48 | 3 min |
+| notification-service | 35 | 2× | 2:03 | 3 min |
+| waitlist-service | 23 | 2× | 2:01 | 3 min |
+| frontend | — | — | skipped | — |
+
+The frontend job was correctly skipped, since this commit didn't touch `frontend/**`. The run cost **~16 of the 2,000 free minutes**.
+
 **Recorded for later, not changed here**:
 - In docker-compose, booking-service uses the shared default DB `ticketing` rather than its own, contradicting ADR-001.
 - Kubernetes injects `REDIS_PORT=tcp://…` for a Service named `redis`, which would collide with our `REDIS_PORT`, so slice (b) must set `enableServiceLinks: false`.
