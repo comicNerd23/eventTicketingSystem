@@ -1,0 +1,19 @@
+# Prod: the multi-arch release images from GHCR (ADR-021). Deploy only with deploy-prod.js.
+#
+# Two things are deliberately missing here, because this repository is public:
+# - the image tag: "set-by-deploy" is replaced with the requested sha-<7> / vX.Y.Z tag when the
+#   overlay is rendered, so a deploy or rollback needs no commit;
+# - the db-credentials Secret and the gateway-config ConfigMap: deploy-prod.js creates them from
+#   environment variables (GitHub Actions secrets in the deploy job).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+images:
+  - { name: ticketing/event-service, newName: ghcr.io/comicnerd23/ticketing/event-service, newTag: set-by-deploy }
+  - { name: ticketing/booking-service, newName: ghcr.io/comicnerd23/ticketing/booking-service, newTag: set-by-deploy }
+  - { name: ticketing/payment-service, newName: ghcr.io/comicnerd23/ticketing/payment-service, newTag: set-by-deploy }
+  - { name: ticketing/notification-service, newName: ghcr.io/comicnerd23/ticketing/notification-service, newTag: set-by-deploy }
+  - { name: ticketing/waitlist-service, newName: ghcr.io/comicnerd23/ticketing/waitlist-service, newTag: set-by-deploy }
+  - { name: ticketing/api-gateway, newName: ghcr.io/comicnerd23/ticketing/api-gateway, newTag: set-by-deploy }
+  - { name: ticketing/frontend, newName: ghcr.io/comicnerd23/ticketing/frontend, newTag: set-by-deploy }

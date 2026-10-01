@@ -11,6 +11,13 @@ server {
     server_name _;
     root /usr/share/nginx/html;
 
+    # The gateway's actuator (health, Prometheus metrics) is for the cluster only: probes and
+    # scrapers reach the pods directly, never through this proxy (ADR-021). ^~ also stops the
+    # regex location below from matching here.
+    location ^~ /api/actuator {
+        return 404;
+    }
+
     # API and WebSocket traffic, same-origin. The trailing slash on proxy_pass strips the /api
     # prefix, so /api/events/1 reaches api-gateway as /events/1 — no gateway change needed, and
     # the SPA keeps /events/:id and /bookings/:id for itself (ADR-019).

@@ -22,50 +22,14 @@
 //
 // Same style as ci.js / seed-events.js: Node built-ins only, cross-platform.
 
-const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-
-const ROOT = __dirname;
-const NAMESPACE = "ticketing";
-const SERVICES = [
-  "api-gateway",
-  "event-service",
-  "booking-service",
-  "payment-service",
-  "notification-service",
-  "waitlist-service",
-];
-const TARGETS = [...SERVICES, "frontend"];
-const ROLLOUT_TIMEOUT = "360s";
-
-function log(line = "") {
-  console.log(line);
-}
-
-function fail(message) {
-  console.error(`ERROR: ${message}`);
-  process.exit(1);
-}
+const { ROOT, NAMESPACE, TARGETS, log, fail, run, capture, waitForRollouts, smokeCheck } = require("./k8s-helpers");
 
 function usage() {
   log("Usage: node deploy-dev.js [targets...] [--no-build] [--seed]");
   log(`Targets: ${TARGETS.join(", ")} (default: all)`);
   process.exit(2);
-}
-
-// Runs a command with inherited output; exits the script if it fails.
-function run(command, args, { cwd = ROOT } = {}) {
-  log(`    $ ${command} ${args.join(" ")}`);
-  const result = spawnSync(command, args, { cwd, stdio: "inherit" });
-  if (result.error) fail(`could not start ${command}: ${result.error.message}`);
-  if (result.status !== 0) fail(`${command} exited with ${result.status}`);
-}
-
-// Runs a command and returns its trimmed stdout, or null if it fails.
-function capture(command, args) {
-  const result = spawnSync(command, args, { cwd: ROOT, encoding: "utf8" });
-  return result.status === 0 ? result.stdout.trim() : null;
 }
 
 // winget puts kind.exe in a Links folder that only shells started after the install have on PATH.
@@ -90,7 +54,7 @@ function detectCluster() {
 
 // Picks the docker context whose engine is Rancher Desktop's, so builds land in k3s's image store.
 function rancherDockerContext() {
-  const contexts = (capture("docker", ["context", "ls", "--format", "{{.Name}}"]) || "").split(/s+/);
+  const contexts = (capture("docker", ["context", "ls", "--format", "{{.Name}}"]) || "").split(/\s+/);
   const name = contexts.includes("rancher-desktop") ? "rancher-desktop" : "default";
   const os = capture("docker", ["--context", name, "info", "--format", "{{.OperatingSystem}}"]);
   if (!os || !os.includes("Rancher Desktop")) {
@@ -109,33 +73,6 @@ function ensureIngressController(cluster) {
   if (cluster.kind !== "kind") fail("no IngressClass in the cluster — Rancher Desktop normally bundles Traefik; is it enabled?");
   log(">>> No ingress controller yet: installing Traefik for kind");
   run("kubectl", ["apply", "-f", "k8s/kind/traefik.yaml"]);
-  log("");
-}
-
-async function smokeCheck(baseUrl) {
-  log(`>>> Smoke check through the Ingress (${baseUrl})`);
-  const checks = [
-    { url: `${baseUrl}/`, ok: (res, body) => res.ok && body.includes("<app-root") },
-    { url: `${baseUrl}/api/events?size=1`, ok: (res) => res.ok },
-  ];
-  for (const { url, ok } of checks) {
-    let passed = false;
-    let last = "";
-    // Traefik can need a few seconds to pick up new endpoints after a rollout.
-    for (let attempt = 1; attempt <= 15 && !passed; attempt++) {
-      try {
-        const res = await fetch(url);
-        const body = await res.text();
-        passed = ok(res, body);
-        last = `HTTP ${res.status}`;
-      } catch (err) {
-        last = err.cause?.code || err.message;
-      }
-      if (!passed) await new Promise((r) => setTimeout(r, 2000));
-    }
-    log(`    ${passed ? "OK  " : "FAIL"} ${url} (${last})`);
-    if (!passed) fail(`smoke check failed for ${url}`);
-  }
   log("");
 }
 
@@ -192,12 +129,7 @@ async function main() {
     log("");
   }
 
-  log(">>> Waiting for rollouts");
-  const workloads = capture("kubectl", ["-n", NAMESPACE, "get", "deployments,statefulsets", "-o", "name"]);
-  for (const w of (workloads || "").split(/\s+/).filter(Boolean)) {
-    run("kubectl", ["-n", NAMESPACE, "rollout", "status", w, `--timeout=${ROLLOUT_TIMEOUT}`]);
-  }
-  log("");
+  waitForRollouts([]);
 
   await smokeCheck(cluster.baseUrl);
 
