@@ -25,7 +25,7 @@ go deeper as needed:
 | Where | What's there |
 |---|---|
 | [`docs/plan.md`](docs/plan.md) | The authoritative project history — every slice, every real bug found (and how it was fixed), current phase status. Read this to understand *why* the code looks the way it does, not just what it does. |
-| [`docs/adr/`](docs/adr/) | 20 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
+| [`docs/adr/`](docs/adr/) | 21 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
 | [`docs/diagrams/c4-diagram.md`](docs/diagrams/c4-diagram.md) | C4 Context + Container diagrams. |
 | [`specs/asyncapi/kafka-events.yaml`](specs/asyncapi/kafka-events.yaml) | The event catalog — every Kafka topic, who publishes it, who consumes it. More useful than any single service's code for understanding the whole system. |
 | [`specs/openapi/`](specs/openapi/) | The REST contract per service. |
@@ -160,6 +160,17 @@ compose first.
 See [ADR-018](docs/adr/ADR-018-kubernetes-base-manifests-and-ingress.md),
 [ADR-019](docs/adr/ADR-019-containerized-frontend-and-same-origin-api.md) and
 [ADR-020](docs/adr/ADR-020-dev-deploy-script.md).
+
+## Release images
+
+`.github/workflows/release-images.yml` (manual or on a `v*` tag) builds all seven images natively
+for amd64 and arm64 and publishes them as public multi-arch images:
+`ghcr.io/comicnerd23/ticketing/<target>:sha-<7-char commit>` (plus `:vX.Y.Z` on a tag). There is no
+`latest` tag. See [ADR-021](docs/adr/ADR-021-prod-images-registry-and-secrets.md).
+
+```bash
+gh workflow run release-images.yml           # or: git tag v1.0.0 && git push origin v1.0.0
+```
 
 ## Project layout
 

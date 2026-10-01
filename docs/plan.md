@@ -683,6 +683,47 @@ Documented as `docs/adr/ADR-020-dev-deploy-script.md`.
 
 **Next up:** (e) prod: Secrets, a registry with immutable tags, a deploy job, and multi-arch images (cp-kafka arm64 or KRaft). (f) Rancher Manager is optional.
 
+### 2026-10-01 — multi-arch release images in GHCR (ADR-016 slice (e1)), done
+
+Documented as `docs/adr/ADR-021-prod-images-registry-and-secrets.md`. Slice (e) is split into three parts:
+- e1: the images.
+- e2: the prod overlay and Secrets, verified locally.
+- e3: the Oracle VM, k3s and the deploy job.
+
+**Facts checked before deciding:**
+- **GHCR container storage is currently free, including private images** ([GitHub docs](https://docs.github.com/en/billing/concepts/product-billing/github-packages)).
+  - ADR-016's 500 MB limit applies only to the other Packages registries. ADR-016 now carries a correction note.
+- **The repository is public.** It was believed to be private.
+  - On a public repository, standard runners cost no minutes, and `ubuntu-24.04-arm` has 4 vCPUs.
+- **Every base image has an arm64 variant**, including `cp-kafka`/`cp-zookeeper:7.5.0`.
+  - **KRaft is not needed for the arm64 VM.** That closes the open question from ADR-018.
+
+**Decisions made with the user:**
+- The order is e1 → e2 → e3.
+- GHCR with **public** images. The first choice was private; it changed once the repository turned out to be public.
+- Native runners per architecture.
+- GitHub Actions secrets, turned into Kubernetes Secrets by the deploy job. That part comes in e2/e3.
+
+**What was added:** `.github/workflows/release-images.yml`, triggered manually or by a `v*` tag.
+- 7 targets × {amd64 on `ubuntu-latest`, arm64 on `ubuntu-24.04-arm`}. Each job pushes `…:sha-<7>-<arch>`.
+- One merge job per target runs `imagetools create` to make **`ghcr.io/comicnerd23/ticketing/<target>:sha-<7>`**, plus the Git tag on a tag push. There is no `latest`.
+- actionlint (in a container) reports no findings for this workflow or `ci.yml`.
+
+**Verified** ([run 36860189486](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/36860189486), for `9c67867`):
+- All 21 jobs passed in **about 3 minutes** of wall time. The builds took 75–153 s each, the merges 13–22 s.
+- **Anonymous pulls work.** With an anonymous GHCR token, every `:sha-9c67867` index returned HTTP 200 and lists `linux/amd64` and `linux/arm64`.
+  - GHCR created the packages as public, following the repository, so no manual visibility change was needed.
+- **The arm64 images really are arm64.** Run locally under emulation:
+  - api-gateway reports `aarch64` and Java 25.0.4.1, with the 52 MB jar.
+  - The frontend reports `aarch64`, `uid=101(nginx)` and nginx 1.30.5 serving `index.html`.
+- In the registry's image config, `org.opencontainers.image.source` and `.revision` point at this repository and commit.
+
+**Found while verifying:**
+- **The images inherited the Ubuntu base image's `title` and `description` labels**, which GHCR shows on the package page. The workflow now overrides both. This takes effect on the next release run and is **not verified yet**.
+- `docker image inspect` on the multi-platform pull showed no labels. That is a display quirk of Docker Desktop's containerd store; the registry config has them.
+
+**Next up:** (e2) the prod overlay (GHCR images by `sha-` tag, Secrets, the prod profile), verified locally; then (e3) the Oracle A1 VM (the user creates the account and VM), k3s and a deploy job.
+
 ---
 
 ## Outstanding housekeeping

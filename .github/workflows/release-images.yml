@@ -63,10 +63,14 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           push: true
           tags: ${{ env.IMAGE }}:sha-${{ env.SHORT_SHA }}-${{ matrix.arch }}
-          # Links the package to this repository, so later runs' GITHUB_TOKEN may write to it.
+          # source links the package to this repository, so later runs' GITHUB_TOKEN may write to it.
+          # title/description replace the ones inherited from the Ubuntu base image, which GHCR
+          # would otherwise show on the package page.
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=ticketing/${{ matrix.target }}
+            org.opencontainers.image.description=Event Ticketing Platform — ${{ matrix.target }} (ADR-021)
           # Plain image manifests; the merge job builds the multi-arch index itself.
           provenance: false
           cache-from: type=gha,scope=${{ matrix.target }}-${{ matrix.arch }}

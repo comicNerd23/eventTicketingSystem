@@ -11,7 +11,7 @@ A portfolio project: an event ticketing system (concerts, sports, theatre, comed
 The repo documents itself more than this file can — always check these before assuming behavior:
 
 - `docs/plan.md` — authoritative, dated project history: every slice, every real bug found and how it was fixed, current phase status. Read this to understand *why* the code looks the way it does.
-- `docs/adr/` — 20 Architecture Decision Records with the reasoning behind every non-obvious choice.
+- `docs/adr/` — 21 Architecture Decision Records with the reasoning behind every non-obvious choice.
 - `docs/diagrams/c4-diagram.md` — C4 Context + Container diagrams (Mermaid).
 - `specs/asyncapi/kafka-events.yaml` — the event catalog: every Kafka topic, publisher, consumer.
 - `specs/openapi/` — REST contract per service.
@@ -55,6 +55,8 @@ mvn test -Dtest=ClassName#methodName # single test method
 cd frontend
 npx ng test
 ```
+
+**Release images** — `.github/workflows/release-images.yml` (manual or `v*` tag) pushes multi-arch (amd64 + arm64, native runners) images to `ghcr.io/comicnerd23/ticketing/<target>:sha-<7>`; immutable tags only, public packages (ADR-021). The repo is public, so Actions minutes are free.
 
 **CI locally** — `ci.js` runs exactly what `.github/workflows/ci.yml` runs per job (ADR-015): `node ci.js <service> [--docker]`, `node ci.js frontend [--docker]`, `node ci.js all`. Testcontainers should use the local Docker runtime rather than Testcontainers Cloud (free plan capped at 50 min/month).
 
