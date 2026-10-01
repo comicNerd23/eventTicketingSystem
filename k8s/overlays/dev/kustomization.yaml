@@ -1,0 +1,24 @@
+# Local dev cluster. Images are built locally and loaded into the cluster, no registry.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+images:
+  - { name: ticketing/event-service, newTag: dev }
+  - { name: ticketing/booking-service, newTag: dev }
+  - { name: ticketing/payment-service, newTag: dev }
+  - { name: ticketing/notification-service, newTag: dev }
+  - { name: ticketing/waitlist-service, newTag: dev }
+  - { name: ticketing/api-gateway, newTag: dev }
+secretGenerator:
+  # Local-only password, the same as docker-compose. Prod gets real Secrets in ADR-016 (e).
+  - name: db-credentials
+    namespace: ticketing
+    literals:
+      - username=ticketing
+      - password=ticketing
+configMapGenerator:
+  - name: gateway-config
+    namespace: ticketing
+    literals:
+      - cors-allowed-origins=http://localhost:4200

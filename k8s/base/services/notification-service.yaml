@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+spec:
+  selector:
+    app: notification-service
+  ports:
+    - port: 8084
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: notification-service
+          image: ticketing/notification-service
+          ports:
+            - containerPort: 8084
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: prod
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:MaxRAMPercentage=60"
+            - name: DB_URL
+              value: jdbc:postgresql://postgres:5432/ticketing_notifications
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef: { name: db-credentials, key: username }
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: db-credentials, key: password }
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:9092
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8084 }
+            periodSeconds: 5
+            failureThreshold: 36
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8084 }
+            periodSeconds: 10
+            # The default 1s is too tight while six JVMs share two CPUs.
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8084 }
+            periodSeconds: 5
+          resources:
+            requests: { memory: 300Mi, cpu: 100m }
+            limits: { memory: 512Mi }

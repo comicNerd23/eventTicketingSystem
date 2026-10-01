@@ -25,7 +25,7 @@ go deeper as needed:
 | Where | What's there |
 |---|---|
 | [`docs/plan.md`](docs/plan.md) | The authoritative project history — every slice, every real bug found (and how it was fixed), current phase status. Read this to understand *why* the code looks the way it does, not just what it does. |
-| [`docs/adr/`](docs/adr/) | 17 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
+| [`docs/adr/`](docs/adr/) | 18 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
 | [`docs/diagrams/c4-diagram.md`](docs/diagrams/c4-diagram.md) | C4 Context + Container diagrams. |
 | [`specs/asyncapi/kafka-events.yaml`](specs/asyncapi/kafka-events.yaml) | The event catalog — every Kafka topic, who publishes it, who consumes it. More useful than any single service's code for understanding the whole system. |
 | [`specs/openapi/`](specs/openapi/) | The REST contract per service. |
@@ -120,6 +120,25 @@ To run the local stack with the prod profile:
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod-profile.yml up -d
 ```
 
+## Kubernetes
+
+`k8s/base` holds environment-neutral manifests: the six services, Postgres, Redis, Kafka and
+one Ingress to the api-gateway. `k8s/overlays/dev` adds image tags and dev credentials.
+To verify locally on kind (Docker Desktop), stop the compose stack first, because both don't
+fit in a 4 GB Docker VM:
+
+```bash
+kind create cluster --name ticketing --config k8s/kind/cluster.yaml
+kubectl apply -f k8s/kind/traefik.yaml   # k3s and Rancher Desktop already bundle Traefik
+for s in event-service booking-service payment-service notification-service waitlist-service api-gateway; do
+  docker tag docker-$s:latest ticketing/$s:dev && kind load docker-image ticketing/$s:dev --name ticketing
+done
+kubectl apply -k k8s/overlays/dev
+curl localhost:8000/events               # through the Ingress
+```
+
+See [ADR-018](docs/adr/ADR-018-kubernetes-base-manifests-and-ingress.md).
+
 ## Project layout
 
 ```
@@ -131,7 +150,7 @@ docs/
   plan.md           Dated, narrative project history (the real source of truth)
   adr/              Architecture Decision Records
   diagrams/          C4 diagrams
-k8s/                Kubernetes manifests (not started yet — see docs/plan.md Phase 5)
+k8s/                Kustomize base + dev overlay, kind config for local verification (ADR-018)
 ```
 
 ## Current status

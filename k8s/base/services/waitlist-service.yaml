@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: waitlist-service
+spec:
+  selector:
+    app: waitlist-service
+  ports:
+    - port: 8085
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: waitlist-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: waitlist-service
+  template:
+    metadata:
+      labels:
+        app: waitlist-service
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: waitlist-service
+          image: ticketing/waitlist-service
+          ports:
+            - containerPort: 8085
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: prod
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:MaxRAMPercentage=60"
+            - name: DB_URL
+              value: jdbc:postgresql://postgres:5432/ticketing_waitlist
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef: { name: db-credentials, key: username }
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: db-credentials, key: password }
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:9092
+            - name: EVENT_SERVICE_BASE_URL
+              value: http://event-service:8081
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8085 }
+            periodSeconds: 5
+            failureThreshold: 36
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8085 }
+            periodSeconds: 10
+            # The default 1s is too tight while six JVMs share two CPUs.
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8085 }
+            periodSeconds: 5
+          resources:
+            requests: { memory: 300Mi, cpu: 100m }
+            limits: { memory: 512Mi }

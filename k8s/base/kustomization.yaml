@@ -1,0 +1,18 @@
+# Environment-neutral manifests (ADR-016). Overlays add what differs per environment:
+# image tags, the db-credentials Secret and the gateway-config ConfigMap.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ticketing
+resources:
+  - namespace.yaml
+  - infra/postgres.yaml
+  - infra/redis.yaml
+  - infra/zookeeper.yaml
+  - infra/kafka.yaml
+  - services/event-service.yaml
+  - services/booking-service.yaml
+  - services/payment-service.yaml
+  - services/notification-service.yaml
+  - services/waitlist-service.yaml
+  - services/api-gateway.yaml
+  - ingress.yaml

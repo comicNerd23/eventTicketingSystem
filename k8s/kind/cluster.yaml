@@ -1,0 +1,10 @@
+# Single-node kind cluster for verifying the dev overlay (ADR-016 allows kind as a dev
+# alternative). Host port 8000 reaches the ingress controller on the node's port 80.
+#   kind create cluster --name ticketing --config k8s/kind/cluster.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8000

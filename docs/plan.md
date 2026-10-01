@@ -504,8 +504,47 @@ The frontend job was correctly skipped, since this commit didn't touch `frontend
 - In docker-compose, booking-service uses the shared default DB `ticketing` rather than its own, contradicting ADR-001.
 - Kubernetes injects `REDIS_PORT=tcp://…` for a Service named `redis`, which would collide with our `REDIS_PORT`, so slice (b) must set `enableServiceLinks: false`.
 
+### 2026-10-01 — K8s base manifests (ADR-016 slice (b)), done
+
+Documented as `docs/adr/ADR-018-kubernetes-base-manifests-and-ingress.md`.
+
+**Decisions made with the user before writing anything:**
+- Verify on **kind** (v0.33.0, installed via winget) in Docker Desktop. The Docker VM stays at **4 GB**.
+- Entry point: a plain **Ingress served by Traefik** instead of the Gateway API or no Ingress. ingress-nginx was retired in March 2026, and k3s and Rancher Desktop both bundle Traefik.
+
+**What was added:**
+- `k8s/base` (Kustomize, namespace `ticketing`):
+  - StatefulSets for Postgres, Redis, ZooKeeper and Kafka. They use the same cp-* 7.5.0 images as compose, with one in-cluster listener `kafka:9092`.
+  - Six Deployment + Service pairs.
+  - One Ingress, `/` → api-gateway, which already routes `/bookings/ws/**`.
+- Every pod has `enableServiceLinks: false`.
+- Every service runs the Spring **prod** profile, so a missing variable in a manifest fails at startup.
+- booking-service gets its **own `ticketing_bookings`** database, created together with the other four by a `postgres-init` ConfigMap.
+- Probes use `/actuator/health/{liveness,readiness}`, with a 3-minute `startupProbe` and a 3 s liveness timeout.
+- Resources are sized for 4 GB: 300 Mi request and 512 Mi limit per service, Kafka heap 384 MB.
+- `k8s/overlays/dev` sets the `:dev` image tags and generates the `db-credentials` Secret and the `gateway-config` ConfigMap (CORS origin).
+- `k8s/kind/` holds `cluster.yaml` (host port 8000 → node port 80) and `traefik.yaml`, a minimal Traefik v3.7.13 with RBAC from Traefik's own reference file and a default IngressClass, as in k3s.
+
+**Verified on kind** (compose stack stopped, existing images from slice (a), confirmed to contain `application-prod.yml`, `RequiredConfigurationCheck` and the V1 migrations):
+- `kubectl apply -k k8s/overlays/dev`: all 10 pods Ready after about 5 minutes. The node used 2.8–3.0 of 3.8 GiB.
+- `demo.js` against port-forwarded services ran **all steps 0a–15**: HELD → PAYMENT_PENDING → CONFIRMED, payment SUCCEEDED → REFUNDED, notifications SENT, waitlist PROMOTED. It was run twice, the second time after the probe change below.
+- **Through the Ingress** (`localhost:8000`, Traefik → api-gateway): `GET /events` and `POST /bookings/hold` (201) worked. A WebSocket on `/bookings/ws/events/{id}/seats` received `{"status":"HELD"}` for the held seat, three times in a row at about 100 ms per hold.
+- Databases: `ticketing_bookings` holds `bookings` + `flyway_schema_history`, and the shared `ticketing` database has **no tables**.
+- **Negative check for `enableServiceLinks`**: a control pod without it got `REDIS_PORT=tcp://10.96.67.125:6379` and `KAFKA_PORT=tcp://…`. booking-service saw `REDIS_PORT=6379`, and kafka-0 had no `KAFKA_PORT`.
+- `kubectl diff -k` after apply showed no drift.
+
+**Found while verifying:**
+- On a cold start, pods restart 1–2 times because there is no start ordering: Kafka exited 1 before ZooKeeper was up, and the services couldn't reach Postgres yet. Kubernetes converges on its own. This is accepted and recorded in ADR-018.
+- The api-gateway's first startup probe hit the 1 s default timeout ("context deadline exceeded") while six JVMs shared two CPUs, so liveness now uses `timeoutSeconds: 3`.
+- The **first** WebSocket check through the Ingress timed out after 15 s, and the hold request never arrived. It did **not reproduce** in three later runs, and the booking-service, gateway and Traefik logs show no error. The cause is not determined; the most likely candidate is a cold first request.
+- `seed-events.js` resets data via `docker exec docker-postgres-1`, so it only works against compose. A cluster variant belongs in slice (d).
+
+**Not changed, recorded for later:**
+- docker-compose's booking-service still uses the shared `ticketing` DB, because existing dev volumes would need the new database created by hand.
+- `k8s/overlays/prod` is still empty (slice (e)).
+- Prometheus, Grafana and Kafdrop are not in the cluster.
+
 **Next up** — the rest of the dev/prod roadmap from ADR-016, one slice at a time:
-- (b) K8s base manifests (including `enableServiceLinks: false` and a dedicated booking DB, see ADR-017).
 - (c) Containerized frontend.
 - (d) Dev deploy script against Rancher Desktop.
 - (e) Prod deploy: Secrets, registry, deploy job.
