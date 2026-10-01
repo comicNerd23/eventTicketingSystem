@@ -1,0 +1,100 @@
+# Builds the seven runtime images for amd64 and arm64 and publishes them to GHCR (ADR-021).
+# The prod VM is arm64 (ADR-016), and amd64 images keep the same tags usable on dev machines.
+#
+# Each architecture builds natively on its own runner (ubuntu-24.04-arm for arm64), so Maven never
+# runs under QEMU emulation. A merge job then joins the two per-arch tags into one multi-arch tag.
+#
+# Tags are immutable: sha-<7-char commit> always, plus the Git tag (v1.2.3) on a tag push. There
+# is no "latest", so a deploy always names exactly what it runs.
+#
+# Triggered manually or by pushing a v* tag — not on every push, since a full run is 14 builds.
+name: Release images
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.target }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [api-gateway, event-service, booking-service, payment-service,
+                 notification-service, waitlist-service, frontend]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - name: Image name and context
+        run: |
+          # GHCR requires lowercase names; the owner here is "comicNerd23".
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ticketing/${{ matrix.target }}" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          if [ "${{ matrix.target }}" = frontend ]; then
+            echo "CONTEXT=frontend" >> "$GITHUB_ENV"
+          else
+            echo "CONTEXT=services/${{ matrix.target }}" >> "$GITHUB_ENV"
+          fi
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: ${{ env.CONTEXT }}
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: ${{ env.IMAGE }}:sha-${{ env.SHORT_SHA }}-${{ matrix.arch }}
+          # Links the package to this repository, so later runs' GITHUB_TOKEN may write to it.
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          # Plain image manifests; the merge job builds the multi-arch index itself.
+          provenance: false
+          cache-from: type=gha,scope=${{ matrix.target }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}-${{ matrix.arch }}
+
+  merge:
+    name: ${{ matrix.target }} (multi-arch)
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [api-gateway, event-service, booking-service, payment-service,
+                 notification-service, waitlist-service, frontend]
+    steps:
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create the multi-arch tag
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ticketing/${{ matrix.target }}"
+          TAG="sha-${GITHUB_SHA::7}"
+          EXTRA=()
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then EXTRA=(-t "$IMAGE:${GITHUB_REF_NAME}"); fi
+          docker buildx imagetools create -t "$IMAGE:$TAG" "${EXTRA[@]}" \
+            "$IMAGE:$TAG-amd64" "$IMAGE:$TAG-arm64"
+          docker buildx imagetools inspect "$IMAGE:$TAG"

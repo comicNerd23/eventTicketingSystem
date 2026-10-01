@@ -129,6 +129,8 @@ this decision would carry over.
   - An image registry: private GHCR storage on the free plan is small (about 500 MB), which is
     too little for six JVM images. That means either a public repository or a different free
     registry.
+    *Corrected in ADR-021:* the 500 MB limit applies to the other GitHub Packages registries; GHCR
+    container storage is currently free, including private images.
   - A manually or tag-triggered deploy job.
 - **(f) Optional:** Rancher Manager.
 
