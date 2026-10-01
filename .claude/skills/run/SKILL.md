@@ -25,6 +25,7 @@ documents itself and the details below can drift:
 | notification-service | services/notification-service | port 8084 |
 | waitlist-service | services/waitlist-service | port 8085 |
 | frontend | frontend/ | Angular, Vitest; container (nginx) → localhost:8000, `ng serve` → localhost:4200; both proxy `/api` to the gateway (ADR-019) |
+| k8s dev cluster | deploy-dev.js | `node deploy-dev.js [targets] [--no-build] [--seed]` against the current kube-context (kind-* → :8000, rancher-desktop → :80), ADR-020 |
 | infra | docker/docker-compose.yml | Postgres, Redis, Kafka, Zookeeper, Kafdrop (9000), Prometheus (9090), Grafana (3000, admin/admin) |
 
 ## Standard startup sequence

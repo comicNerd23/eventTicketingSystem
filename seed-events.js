@@ -13,13 +13,28 @@
 //
 // Prerequisites: docker compose -f docker/docker-compose.yml up --build -d, event-service healthy.
 //
+// Against a Kubernetes dev cluster (ADR-020), pass --k8s: the catalog is posted through the
+// Ingress (frontend nginx -> /api -> api-gateway) and the truncate runs via
+// `kubectl exec` in the postgres-0 pod. The base URL defaults to kind's http://localhost:8000;
+// deploy-dev.js passes the right one for Rancher Desktop.
+//
+//   node seed-events.js                                   # docker compose
+//   node seed-events.js --k8s [--base-url=http://localhost]
+//
 // Cross-platform replacement for the old seed-events.sh (bash-only — needed Git Bash/WSL
 // on Windows). Uses Node's built-in fetch + child_process, no dependencies.
 
 const { execFileSync } = require("node:child_process");
 
-const EVENT_BASE = "http://localhost:8081";
+const K8S = process.argv.includes("--k8s");
+const BASE_URL_ARG = process.argv.find((a) => a.startsWith("--base-url="));
+const K8S_BASE = (BASE_URL_ARG ? BASE_URL_ARG.slice("--base-url=".length) : "http://localhost:8000").replace(/\/$/, "");
+
+const EVENT_BASE = K8S ? `${K8S_BASE}/api` : "http://localhost:8081";
+// The gateway exposes only its own actuator, so in the cluster an event-service read stands in for it.
+const HEALTH_URL = K8S ? `${EVENT_BASE}/events?size=1` : `${EVENT_BASE}/actuator/health`;
 const POSTGRES_CONTAINER = "docker-postgres-1";
+const TRUNCATE_SQL = "TRUNCATE TABLE seats, sections, events, venues RESTART IDENTITY CASCADE;";
 
 function log(line = "") {
   console.log(line);
@@ -37,7 +52,8 @@ async function waitForHealthy(url, { retries = 30, delayMs = 2000 } = {}) {
       const res = await fetch(url);
       if (res.ok) {
         const body = await res.json().catch(() => undefined);
-        if (!body || body.status === "UP") {
+        // Actuator health must report UP; in --k8s mode any 200 from GET /events is enough.
+        if (K8S || !body || body.status === "UP") {
           log("    OK");
           log("");
           return;
@@ -225,24 +241,15 @@ async function main() {
   log("=========================================");
   log("");
 
-  await waitForHealthy(`${EVENT_BASE}/actuator/health`);
+  await waitForHealthy(HEALTH_URL);
 
-  log(">>> Truncating venues/events/sections/seats in ticketing_events");
-  execFileSync(
-    "docker",
-    [
-      "exec",
-      POSTGRES_CONTAINER,
-      "psql",
-      "-U",
-      "ticketing",
-      "-d",
-      "ticketing_events",
-      "-c",
-      "TRUNCATE TABLE seats, sections, events, venues RESTART IDENTITY CASCADE;",
-    ],
-    { stdio: "inherit" }
-  );
+  log(`>>> Truncating venues/events/sections/seats in ticketing_events (${K8S ? "kubectl, pod postgres-0" : "docker, " + POSTGRES_CONTAINER})`);
+  const psql = ["psql", "-U", "ticketing", "-d", "ticketing_events", "-c", TRUNCATE_SQL];
+  if (K8S) {
+    execFileSync("kubectl", ["-n", "ticketing", "exec", "postgres-0", "--", ...psql], { stdio: "inherit" });
+  } else {
+    execFileSync("docker", ["exec", POSTGRES_CONTAINER, ...psql], { stdio: "inherit" });
+  }
   log("");
 
   for (const event of EVENTS) {

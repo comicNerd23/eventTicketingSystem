@@ -605,7 +605,65 @@ Documented as `docs/adr/ADR-019-containerized-frontend-and-same-origin-api.md`.
 - The gateway's CORS config is now unused by the app. It stays for direct API clients.
 - The gateway's `/actuator/health` is reachable from outside via `/api/actuator/health`. Before this slice it was reachable via `/actuator/health`. This belongs in the prod slice (e).
 
-**Next up:** (d) the dev deploy script against Rancher Desktop, including a cluster variant of `seed-events.js`; then (e) prod; (f) is optional.
+**CI** for `eb7029b` ([run 36844711566](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/36844711566)): green, all 8 jobs, about 2.5 min wall time. Every service job ran because the commit changed `ci.js` and `ci.yml`; the path filter re-runs all targets on a pipeline change. The frontend job now builds the image too (`naming to docker.io/ticketing/frontend:ci done`).
+
+| Job | Tests | Duration |
+|---|---|---|
+| changes | — | 0:05 |
+| frontend (incl. image build) | 34 | 0:44 |
+| api-gateway | 7 | 1:08 |
+| event-service | 35 | 1:33 |
+| notification-service | 35 | 1:32 |
+| waitlist-service | 23 | 1:33 |
+| payment-service | 33 | 2:13 |
+| booking-service | 68 | 2:21 |
+
+### 2026-10-01 — dev deploy script (ADR-016 slice (d)), done
+
+Documented as `docs/adr/ADR-020-dev-deploy-script.md`.
+
+**Found before writing anything:** on Windows, Rancher Desktop runs as a WSL2 distribution, and all WSL2 distributions share one VM and its `.wslconfig` limits ([Rancher Desktop docs](https://docs.rancherdesktop.io/1.8/ui/preferences/wsl/)). On this machine that is 4 GB, shared with Docker Desktop, so Rancher Desktop and Docker Desktop with kind never run at the same time.
+
+**Decisions made with the user:**
+- **One script for both clusters, chosen from the kube-context.** This was chosen over Rancher Desktop only and over kind only.
+- **A Node script** (`deploy-dev.js`), chosen over Skaffold and Tilt.
+- **`seed-events.js --k8s`**, chosen over a separate script and over a Kubernetes Job.
+
+**What was added:**
+- `deploy-dev.js [targets...] [--no-build] [--seed]`:
+  - Refuses any context other than `kind-*` and `rancher-desktop`.
+  - Builds one image at a time. On kind it runs `kind load`; on Rancher Desktop it builds through Rancher Desktop's docker engine, which k3s shares, so there is no load step.
+  - Installs Traefik on kind if there is no IngressClass, then applies the dev overlay.
+  - Restarts only rebuilt Deployments that already existed, waits for every rollout, and runs a smoke check through the Ingress (`/` must return the app shell, `/api/events` a 200).
+  - `--seed` reseeds the catalog.
+- `seed-events.js --k8s [--base-url=…]`: posts the catalog through `/api` and truncates via `kubectl exec postgres-0`. Without the flag it behaves as before.
+- Rancher Desktop 1.24.0 was installed (winget, machine-wide) and runs with moby on k3s **1.36.4**, the stable channel. The fresh install had preselected 1.25.16.
+
+**Verified on kind:**
+- A prod-like kube-context in a temporary kubeconfig was refused before anything was built. An unknown target exits with code 2.
+- `--no-build --seed`: smoke check OK, 13 events seeded across all categories.
+- `frontend api-gateway`: built, loaded and restarted, 62 s in total.
+- **A code change reaches the pod.** A marker file in `frontend/public` was served after `deploy-dev.js frontend`. After it was removed and redeployed, its path fell back to the SPA. The working tree is clean.
+
+**Verified on Rancher Desktop:**
+- **The first run, with a cold build of all seven images, built everything but timed out in the rollout.**
+  - Cause: `apply` had just created the Deployments, and the following `rollout restart` started a second ReplicaSet for each one. That meant 12 JVMs, three pods Pending, and restarts.
+  - Fixed: only Deployments that existed before the apply are restarted. On kind this had not shown, because the Deployments already existed there.
+- After deleting the namespace, `deploy-dev.js --seed` deployed into the empty cluster in **240 s**: all 11 pods Ready with **0 restarts**, smoke check OK on `http://localhost`, 13 events seeded.
+- A hold through Rancher Desktop's Traefik pushed `HELD` over the WebSocket in all three runs (678, 176 and 61 ms), and `/events/x` returned the app.
+
+**Found while verifying:**
+- **The docker CLI kept Docker Desktop's context** (`desktop-linux`), and Rancher Desktop's diagnostics flagged it. Rancher Desktop serves the `default` context (`npipe:////./pipe/docker_engine`). The script uses that context for its builds and does not change the global setting.
+- **On the switch back, Docker Desktop's restart revived the six stopped compose app containers.** With no infrastructure they crash-looped (`restart: on-failure`), and the kind node's load rose to 46 on two CPUs. Every kind JVM was then killed by its 3-minute startup probe (exit 137). After `docker stop` on those containers, all pods were Ready in 90 s.
+- **Right after the node restart, `kubectl rollout status` reported success from stale status**, but the smoke check failed (`UND_ERR_SOCKET`). The smoke check is what makes the script's result trustworthy.
+- The WebSocket miss from slices (b) and (c) did **not** occur on Rancher Desktop. The first push arrived after 678 ms.
+- `rdctl start` stays attached to the app. In Git Bash, `rdctl api /v1/…` paths need `MSYS_NO_PATHCONV=1`.
+
+**Not changed, recorded for later:**
+- `demo.js` still calls each service on its own port, so in a cluster it needs `kubectl port-forward`.
+- The compose stack and Testcontainers on Rancher Desktop are **not verified**. Both would decide whether Docker Desktop can be dropped entirely.
+
+**Next up:** (e) prod: Secrets, a registry with immutable tags, a deploy job, and multi-arch images (cp-kafka arm64 or KRaft). (f) Rancher Manager is optional.
 
 ---
 

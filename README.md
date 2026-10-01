@@ -25,7 +25,7 @@ go deeper as needed:
 | Where | What's there |
 |---|---|
 | [`docs/plan.md`](docs/plan.md) | The authoritative project history — every slice, every real bug found (and how it was fixed), current phase status. Read this to understand *why* the code looks the way it does, not just what it does. |
-| [`docs/adr/`](docs/adr/) | 19 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
+| [`docs/adr/`](docs/adr/) | 20 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
 | [`docs/diagrams/c4-diagram.md`](docs/diagrams/c4-diagram.md) | C4 Context + Container diagrams. |
 | [`specs/asyncapi/kafka-events.yaml`](specs/asyncapi/kafka-events.yaml) | The event catalog — every Kafka topic, who publishes it, who consumes it. More useful than any single service's code for understanding the whole system. |
 | [`specs/openapi/`](specs/openapi/) | The REST contract per service. |
@@ -127,22 +127,39 @@ docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod-profil
 
 `k8s/base` holds environment-neutral manifests: the six services, the frontend, Postgres, Redis,
 Kafka and one Ingress to the frontend, whose nginx proxies `/api` to the api-gateway (ADR-019). `k8s/overlays/dev` adds image tags and dev credentials.
-To verify locally on kind (Docker Desktop), stop the compose stack first, because both don't
-fit in a 4 GB Docker VM:
+`deploy-dev.js` builds the images, deploys the dev overlay and smoke-tests it through the Ingress.
+The cluster is the current kube-context: `kind-*` or `rancher-desktop`. Any other context is
+refused (ADR-020).
 
 ```bash
-kind create cluster --name ticketing --config k8s/kind/cluster.yaml
-kubectl apply -f k8s/kind/traefik.yaml   # k3s and Rancher Desktop already bundle Traefik
-for s in event-service booking-service payment-service notification-service waitlist-service api-gateway; do
-  docker tag docker-$s:latest ticketing/$s:dev && kind load docker-image ticketing/$s:dev --name ticketing
-done
-docker build -t ticketing/frontend:dev frontend && kind load docker-image ticketing/frontend:dev --name ticketing
-kubectl apply -k k8s/overlays/dev
-curl localhost:8000/api/events           # API through the Ingress; the app is at http://localhost:8000
+node deploy-dev.js --seed                    # build all 7 images, deploy, seed the catalog
+node deploy-dev.js booking-service           # rebuild and restart one service
+node deploy-dev.js --no-build                # redeploy the existing :dev images
+node seed-events.js --k8s                    # reseed only (kind; add --base-url=http://localhost for Rancher Desktop)
 ```
 
-See [ADR-018](docs/adr/ADR-018-kubernetes-base-manifests-and-ingress.md) and
-[ADR-019](docs/adr/ADR-019-containerized-frontend-and-same-origin-api.md).
+Two dev clusters work. Neither runs next to the compose stack in a 4 GB Docker/WSL VM, so stop
+compose first.
+
+- **kind in Docker Desktop**. The app is at http://localhost:8000.
+
+  ```bash
+  kind create cluster --name ticketing --config k8s/kind/cluster.yaml
+  ```
+
+  The script installs Traefik (`k8s/kind/traefik.yaml`) on first use.
+- **Rancher Desktop** (k3s with Traefik, like prod). The app is at http://localhost. On
+  Windows it shares the WSL VM with Docker Desktop, so quit Docker Desktop first. Use the moby
+  runtime, so that k3s sees locally built images, and the stable k3s channel:
+
+  ```bash
+  rdctl start --container-engine.name=moby --kubernetes.enabled=true
+  rdctl set --kubernetes.version=1.36.4
+  ```
+
+See [ADR-018](docs/adr/ADR-018-kubernetes-base-manifests-and-ingress.md),
+[ADR-019](docs/adr/ADR-019-containerized-frontend-and-same-origin-api.md) and
+[ADR-020](docs/adr/ADR-020-dev-deploy-script.md).
 
 ## Project layout
 

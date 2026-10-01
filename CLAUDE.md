@@ -11,7 +11,7 @@ A portfolio project: an event ticketing system (concerts, sports, theatre, comed
 The repo documents itself more than this file can — always check these before assuming behavior:
 
 - `docs/plan.md` — authoritative, dated project history: every slice, every real bug found and how it was fixed, current phase status. Read this to understand *why* the code looks the way it does.
-- `docs/adr/` — 19 Architecture Decision Records with the reasoning behind every non-obvious choice.
+- `docs/adr/` — 20 Architecture Decision Records with the reasoning behind every non-obvious choice.
 - `docs/diagrams/c4-diagram.md` — C4 Context + Container diagrams (Mermaid).
 - `specs/asyncapi/kafka-events.yaml` — the event catalog: every Kafka topic, publisher, consumer.
 - `specs/openapi/` — REST contract per service.
@@ -30,7 +30,13 @@ node demo.js
 
 # Frontend dev server
 cd frontend && npm install && npx ng serve   # -> http://localhost:4200, proxies /api to :8080
+
+# Kubernetes dev cluster (current kube-context must be kind-* or rancher-desktop, ADR-020)
+node deploy-dev.js [targets...] [--no-build] [--seed]   # kind -> :8000, Rancher Desktop -> :80
+node seed-events.js --k8s [--base-url=http://localhost]
 ```
+
+Docker Desktop (compose, Testcontainers, kind) and Rancher Desktop share one 4 GB WSL VM on this machine — never run both. Rancher Desktop serves the docker `default` context (`npipe:////./pipe/docker_engine`); the CLI's own context often stays `desktop-linux`. After Docker Desktop restarts, stopped compose app containers may come back and crash-loop; stop them before using kind.
 
 If containers look broken after a host restart, check `docker compose -f docker/docker-compose.yml ps -a` (the `-a` matters — infra containers can sit `Exited` while app containers crash-loop against them). Bring infra up first, then restart the six app services.
 
