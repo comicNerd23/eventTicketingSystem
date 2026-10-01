@@ -36,15 +36,17 @@ flowchart TB
     attendee(["Event Attendee"])
 
     subgraph browser["Browser"]
-        spa["Angular SPA<br/>(frontend/, port 4200 dev)"]
+        spa["Angular SPA<br/>calls the API same-origin under /api"]
     end
+
+    web["frontend<br/>nginx-unprivileged, port 8080<br/>serves the SPA, proxies /api/** — ADR-019<br/>(dev: ng serve + proxy.conf.json)"]
 
     gateway["api-gateway<br/>Spring Cloud Gateway, WebFlux<br/>port 8080 — ADR-007"]
 
     subgraph services["Spring Boot services (one Postgres DB each — ADR-001)"]
         direction LR
         event["event-service<br/>port 8081<br/>DB: ticketing_events"]
-        booking["booking-service<br/>port 8082<br/>DB: ticketing<br/>+ Redis seat holds — ADR-003"]
+        booking["booking-service<br/>port 8082<br/>DB: ticketing_bookings (K8s)<br/>shared ticketing (compose, ADR-018)<br/>+ Redis seat holds — ADR-003"]
         payment["payment-service<br/>port 8083<br/>DB: ticketing_payments"]
         notification["notification-service<br/>port 8084<br/>DB: ticketing_notifications"]
         waitlist["waitlist-service<br/>port 8085<br/>DB: ticketing_waitlist"]
@@ -57,8 +59,10 @@ flowchart TB
     stripe[["Stripe<br/>(stubbed — ADR-011)"]]
 
     attendee --> spa
-    spa -- "REST (HTTPS)" --> gateway
-    spa -- "WebSocket<br/>live seat updates — ADR-009" --> gateway
+    web -- "static files<br/>(index.html, JS, CSS)" --> spa
+    spa -- "REST /api/** (HTTPS)" --> web
+    spa -- "WebSocket /api/bookings/ws/**<br/>live seat updates — ADR-009" --> web
+    web -- "REST + WebSocket<br/>/api prefix stripped" --> gateway
 
     gateway --> event
     gateway --> booking
@@ -80,6 +84,7 @@ flowchart TB
     payment -- "charge / refund<br/>(stub self-delivers webhook)" --> stripe
 
     style gateway fill:#4f46e5,color:#fff
+    style web fill:#4f46e5,color:#fff
     style kafka fill:#232f3e,color:#fff
     style redis fill:#a41e11,color:#fff
     style stripe fill:#eee,stroke:#999,color:#333

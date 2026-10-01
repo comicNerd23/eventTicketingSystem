@@ -143,6 +143,19 @@ services:
       WAITLIST_SERVICE_BASE_URL: http://waitlist-service:8085
     restart: on-failure
 
+  # Containerized Angular app (ADR-019); proxies /api/** to api-gateway. Host port 8000 matches the
+  # kind cluster's Ingress, so the app has the same URL in both setups (they don't run together).
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    depends_on: [api-gateway]
+    ports:
+      - "8000:8080"
+    environment:
+      API_GATEWAY_URL: http://api-gateway:8080
+    restart: on-failure
+
   prometheus:
     image: prom/prometheus:v2.55.1
     depends_on: [api-gateway, event-service, booking-service, payment-service, notification-service, waitlist-service]

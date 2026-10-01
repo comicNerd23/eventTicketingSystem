@@ -11,7 +11,7 @@ A portfolio project: an event ticketing system (concerts, sports, theatre, comed
 The repo documents itself more than this file can — always check these before assuming behavior:
 
 - `docs/plan.md` — authoritative, dated project history: every slice, every real bug found and how it was fixed, current phase status. Read this to understand *why* the code looks the way it does.
-- `docs/adr/` — 18 Architecture Decision Records with the reasoning behind every non-obvious choice.
+- `docs/adr/` — 19 Architecture Decision Records with the reasoning behind every non-obvious choice.
 - `docs/diagrams/c4-diagram.md` — C4 Context + Container diagrams (Mermaid).
 - `specs/asyncapi/kafka-events.yaml` — the event catalog: every Kafka topic, publisher, consumer.
 - `specs/openapi/` — REST contract per service.
@@ -19,7 +19,7 @@ The repo documents itself more than this file can — always check these before 
 ## Commands
 
 ```bash
-# Bring up all 6 services + infra (Postgres, Redis, Kafka, Prometheus, Grafana)
+# Bring up all 6 services + the frontend container (-> http://localhost:8000) + infra (Postgres, Redis, Kafka, Prometheus, Grafana)
 docker compose -f docker/docker-compose.yml up -d
 
 # Reset to a clean demo catalog (13 events across concerts/sports/theatre/comedy)
@@ -29,7 +29,7 @@ node seed-events.js
 node demo.js
 
 # Frontend dev server
-cd frontend && npm install && npx ng serve   # -> http://localhost:4200
+cd frontend && npm install && npx ng serve   # -> http://localhost:4200, proxies /api to :8080
 ```
 
 If containers look broken after a host restart, check `docker compose -f docker/docker-compose.yml ps -a` (the `-a` matters — infra containers can sit `Exited` while app containers crash-loop against them). Bring infra up first, then restart the six app services.
@@ -50,9 +50,9 @@ cd frontend
 npx ng test
 ```
 
-**CI locally** — `ci.js` runs exactly what `.github/workflows/ci.yml` runs per job (ADR-015): `node ci.js <service> [--docker]`, `node ci.js frontend`, `node ci.js all`. Testcontainers should use the local Docker runtime rather than Testcontainers Cloud (free plan capped at 50 min/month).
+**CI locally** — `ci.js` runs exactly what `.github/workflows/ci.yml` runs per job (ADR-015): `node ci.js <service> [--docker]`, `node ci.js frontend [--docker]`, `node ci.js all`. Testcontainers should use the local Docker runtime rather than Testcontainers Cloud (free plan capped at 50 min/month).
 
-Local service ports: api-gateway 8080 · event-service 8081 · booking-service 8082 · payment-service 8083 · notification-service 8084 · waitlist-service 8085 · Kafdrop 9000 · Prometheus 9090 · Grafana 3000 (admin/admin).
+Local service ports: frontend 8000 (compose; kind's Ingress uses the same port) · api-gateway 8080 · event-service 8081 · booking-service 8082 · payment-service 8083 · notification-service 8084 · waitlist-service 8085 · Kafdrop 9000 · Prometheus 9090 · Grafana 3000 (admin/admin).
 
 ## Architecture
 
@@ -68,7 +68,7 @@ Local service ports: api-gateway 8080 · event-service 8081 · booking-service 8
 
 **UUIDv4 primary keys everywhere** (ADR-006), including cross-service foreign-key fields (`Booking.eventId`, `Booking.userId`, etc.) — there is no auto-increment ID anywhere in the domain model.
 
-**Frontend**: Angular 21, zoneless change detection, Vitest for tests, Tailwind 4 for styling. `frontend/src/app/` is organized by feature (`events/`, `bookings/`), talking to the backend via `api-gateway` and to `booking-service` directly via WebSocket for live seat-status updates (ADR-009).
+**Frontend**: Angular 21, zoneless change detection, Vitest for tests, Tailwind 4 for styling. `frontend/src/app/` is organized by feature (`events/`, `bookings/`), talking to the backend only same-origin under `/api` (ADR-019): in the container nginx proxies it to `api-gateway` (prefix stripped), under `ng serve` `proxy.conf.json` does. That includes the seat-status WebSocket, which the gateway routes on to `booking-service` (ADR-009). The `/api` prefix exists because the SPA routes `/events/:id` and `/bookings/:id` collide with the gateway's own paths.
 
 Before "fixing" something that looks wrong, check `docs/adr/` — several apparently odd choices (stubbed Stripe gateway, simplified webhook payload instead of real signature verification, denormalized `venueName`/`city` on `Event`, seat-level fields still client-supplied in bookings) are deliberate, scoped-down decisions documented with their deferral conditions, not bugs.
 

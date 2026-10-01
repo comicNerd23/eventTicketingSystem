@@ -10,6 +10,7 @@ images:
   - { name: ticketing/notification-service, newTag: dev }
   - { name: ticketing/waitlist-service, newTag: dev }
   - { name: ticketing/api-gateway, newTag: dev }
+  - { name: ticketing/frontend, newTag: dev }
 secretGenerator:
   # Local-only password, the same as docker-compose. Prod gets real Secrets in ADR-016 (e).
   - name: db-credentials

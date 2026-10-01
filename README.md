@@ -25,7 +25,7 @@ go deeper as needed:
 | Where | What's there |
 |---|---|
 | [`docs/plan.md`](docs/plan.md) | The authoritative project history — every slice, every real bug found (and how it was fixed), current phase status. Read this to understand *why* the code looks the way it does, not just what it does. |
-| [`docs/adr/`](docs/adr/) | 18 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
+| [`docs/adr/`](docs/adr/) | 19 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
 | [`docs/diagrams/c4-diagram.md`](docs/diagrams/c4-diagram.md) | C4 Context + Container diagrams. |
 | [`specs/asyncapi/kafka-events.yaml`](specs/asyncapi/kafka-events.yaml) | The event catalog — every Kafka topic, who publishes it, who consumes it. More useful than any single service's code for understanding the whole system. |
 | [`specs/openapi/`](specs/openapi/) | The REST contract per service. |
@@ -36,7 +36,7 @@ Prerequisites: Docker Desktop, Node 18+ (for the demo scripts and
 frontend).
 
 ```bash
-# 1. Bring up all 6 services + infra (Postgres, Redis, Kafka, Prometheus, Grafana)
+# 1. Bring up all 6 services, the containerized frontend + infra (Postgres, Redis, Kafka, Prometheus, Grafana)
 docker compose -f docker/docker-compose.yml up -d
 
 # 2. Reset to a clean, varied demo catalog (13 events across concerts/sports/theatre/comedy)
@@ -46,7 +46,9 @@ node seed-events.js
 #    CONFIRMED -> cancel -> refund -> waitlist promotion (15 narrated steps)
 node demo.js
 
-# 4. See it in a browser
+# 4. See it in a browser: the frontend container from step 1
+#    -> http://localhost:8000
+#    or, for frontend development with live reload (proxies /api to :8080):
 cd frontend && npm install && npx ng serve
 # -> http://localhost:4200
 ```
@@ -61,7 +63,8 @@ Other useful local endpoints once the stack is up:
 
 | Service | Port |
 |---|---|
-| api-gateway (client-facing entry point) | 8080 |
+| frontend (nginx; serves the app, proxies `/api` to api-gateway) | 8000 |
+| api-gateway (API entry point) | 8080 |
 | event-service | 8081 |
 | booking-service | 8082 |
 | payment-service | 8083 |
@@ -122,8 +125,8 @@ docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod-profil
 
 ## Kubernetes
 
-`k8s/base` holds environment-neutral manifests: the six services, Postgres, Redis, Kafka and
-one Ingress to the api-gateway. `k8s/overlays/dev` adds image tags and dev credentials.
+`k8s/base` holds environment-neutral manifests: the six services, the frontend, Postgres, Redis,
+Kafka and one Ingress to the frontend, whose nginx proxies `/api` to the api-gateway (ADR-019). `k8s/overlays/dev` adds image tags and dev credentials.
 To verify locally on kind (Docker Desktop), stop the compose stack first, because both don't
 fit in a 4 GB Docker VM:
 
@@ -133,17 +136,19 @@ kubectl apply -f k8s/kind/traefik.yaml   # k3s and Rancher Desktop already bundl
 for s in event-service booking-service payment-service notification-service waitlist-service api-gateway; do
   docker tag docker-$s:latest ticketing/$s:dev && kind load docker-image ticketing/$s:dev --name ticketing
 done
+docker build -t ticketing/frontend:dev frontend && kind load docker-image ticketing/frontend:dev --name ticketing
 kubectl apply -k k8s/overlays/dev
-curl localhost:8000/events               # through the Ingress
+curl localhost:8000/api/events           # API through the Ingress; the app is at http://localhost:8000
 ```
 
-See [ADR-018](docs/adr/ADR-018-kubernetes-base-manifests-and-ingress.md).
+See [ADR-018](docs/adr/ADR-018-kubernetes-base-manifests-and-ingress.md) and
+[ADR-019](docs/adr/ADR-019-containerized-frontend-and-same-origin-api.md).
 
 ## Project layout
 
 ```
 services/           6 independently deployable Spring Boot services
-frontend/           Angular 20 SPA
+frontend/           Angular 21 SPA + Dockerfile (nginx, ADR-019)
 docker/             docker-compose stack + Grafana/Prometheus provisioning
 specs/              OpenAPI (REST) + AsyncAPI (Kafka) contracts, written before the code
 docs/

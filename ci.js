@@ -6,7 +6,7 @@
 //
 // Targets: one of the six service names, "frontend", "services" (all six), or "all".
 //   service  -> mvn -B -ntp verify   (+ docker build of its Dockerfile with --docker)
-//   frontend -> npm ci, ng test (single run), ng build
+//   frontend -> npm ci, ng test (single run), ng build (+ docker build of frontend/Dockerfile with --docker)
 //
 // Five services run Testcontainers suites (Postgres/Kafka). Locally, Testcontainers may be
 // routed to Testcontainers Cloud (free plan capped at 50 min/month, see docs/plan.md) —
@@ -85,13 +85,16 @@ function checkService(name, withDocker) {
   return true;
 }
 
-function checkFrontend() {
+function checkFrontend(withDocker) {
   const dir = path.join(ROOT, "frontend");
-  return (
+  const ok =
     run("npm", ["ci", "--no-audit", "--no-fund"], dir) &&
     run("npx", ["ng", "test", "--watch=false"], dir) &&
-    run("npx", ["ng", "build"], dir)
-  );
+    run("npx", ["ng", "build"], dir);
+  if (ok && withDocker) {
+    return run("docker", ["build", "-t", "ticketing/frontend:ci", "."], dir);
+  }
+  return ok;
 }
 
 function main() {
@@ -114,7 +117,7 @@ function main() {
     log(`  ${t}`);
     log("=========================================");
     const started = Date.now();
-    const ok = t === "frontend" ? checkFrontend() : checkService(t, withDocker);
+    const ok = t === "frontend" ? checkFrontend(withDocker) : checkService(t, withDocker);
     const seconds = Math.round((Date.now() - started) / 1000);
     results.push({ target: t, ok, seconds });
     log(ok ? `  SUCCESS — ${t} (${seconds}s)` : `  FAILED — ${t} (${seconds}s)`);

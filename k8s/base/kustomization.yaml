@@ -15,4 +15,5 @@ resources:
   - services/notification-service.yaml
   - services/waitlist-service.yaml
   - services/api-gateway.yaml
+  - services/frontend.yaml
   - ingress.yaml

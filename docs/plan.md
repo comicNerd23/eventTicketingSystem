@@ -545,12 +545,67 @@ Documented as `docs/adr/ADR-018-kubernetes-base-manifests-and-ingress.md`.
 - Prometheus, Grafana and Kafdrop are not in the cluster.
 
 **Next up** — the rest of the dev/prod roadmap from ADR-016, one slice at a time:
-- (c) Containerized frontend.
+- (c) Containerized frontend — done, see below.
 - (d) Dev deploy script against Rancher Desktop.
 - (e) Prod deploy: Secrets, registry, deploy job.
 - (f) Optional: Rancher Manager.
 
 Distributed tracing still follows once the pipeline is running in GitHub Actions.
+
+### 2026-10-01 — slice (b) pushed, CI result
+
+`807329e` was pushed. [Run 36839032242](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/36839032242) was green, but only the change detection ran (0:13). The commit touched `k8s/` and docs, which match no job's path filter, so the frontend and service jobs were skipped. **The Kubernetes manifests are not validated in CI.** A `kubectl kustomize` or kubeconform check would close that gap and is noted as a possible follow-up.
+
+### 2026-10-01 — containerized frontend (ADR-016 slice (c)), done
+
+Documented as `docs/adr/ADR-019-containerized-frontend-and-same-origin-api.md`.
+
+**Found before writing anything:** the SPA routes `/events/:id` and `/bookings/:id` use the same paths as the gateway's `/events/**` and `/bookings/**`. Served from one origin without a prefix, a reload on `/events/123` would return the gateway's JSON. A plain Ingress can't strip an `/api` prefix without controller-specific annotations, which ADR-018 avoided.
+
+**Decisions made with the user:**
+- **nginx in the frontend image proxies `/api/**` to api-gateway**, stripping the prefix. This was chosen over an Ingress split with `/api` routes in the gateway, and over separate hosts with a runtime `config.json` and CORS.
+- **`nginxinc/nginx-unprivileged`**: non-root (UID 101), port 8080, amd64 and arm64. Chosen over the official `nginx` (root) and Caddy.
+
+**What was added:**
+- `frontend/Dockerfile`: a `node:24-alpine` build stage, then `nginxinc/nginx-unprivileged:1.30-alpine`. Both tags were checked with `docker manifest inspect` and include arm64. The image is 82 MB.
+- `frontend/nginx/default.conf.template`:
+  - `/api/` is proxied to `${API_GATEWAY_URL}/` with WebSocket upgrade headers.
+  - The SPA fallback serves `index.html` with `no-cache`, and hashed assets get a one-year immutable cache.
+  - `/healthz` serves the probes.
+  - `NGINX_ENVSUBST_FILTER` restricts substitution to `API_GATEWAY_URL`.
+- Both environment files use `apiBaseUrl: '/api'`, and `wsBaseUrl` is derived from `location`. `ng serve` gets `proxy.conf.json`, so local development uses the same relative URLs. There is a new `environment.spec.ts`: 34 frontend tests, up from 32.
+- `k8s/base/services/frontend.yaml` (Deployment + Service, `runAsNonRoot`, 16 Mi request / 64 Mi limit). The Ingress `/` now points at `frontend`, and the dev overlay sets `ticketing/frontend:dev`.
+- docker-compose has a `frontend` service on host port 8000, the same as the kind Ingress.
+- `node ci.js frontend --docker` also builds the image, and the workflow's frontend job uses the flag.
+- `docs/diagrams/c4-diagram.md` (Level 2) shows the `frontend` nginx container between the browser and api-gateway. booking-service's database now reads `ticketing_bookings` (K8s) / shared `ticketing` (compose), a leftover from slice (b). Both diagrams were rendered with Mermaid 11 in headless Chrome without errors.
+
+**Verified:**
+- **Image standalone:**
+  - Runs as `uid=101(nginx)`.
+  - `/`, `/events/abc` and `/bookings/xyz` return `text/html`.
+  - The nginx log shows `/api/events` going upstream as `…/events`, so the prefix is stripped.
+- **On kind, through the Ingress (`localhost:8000`):**
+  - `/` and `/events/x` return the app, `/api/events` and `/api/actuator/health` return JSON from the gateway.
+  - `kubectl diff` was empty after the apply.
+- **WebSocket through Ingress → nginx → gateway → booking-service:** the `HELD` push arrived after 117–164 ms in three runs, against 99–105 ms directly at the gateway.
+- **In a real browser** (headless Chrome over CDP; the Chrome extension wasn't connected):
+  - Opening the deep link `/events/{id}` directly rendered all 650 seats.
+  - A hold made outside the browser turned the seat amber live, and the cancel turned it back. The browser's WebSocket was `ws://localhost:8000/api/bookings/ws/…`.
+- **`ng serve` with `proxy.conf.json`** against a port-forwarded gateway: `/events/x` returns HTML, `/api/events` returns JSON, and the WebSocket push arrived after 71 ms.
+- `docker compose config` is valid, both alone and with the prod-profile file. **The compose stack itself was not started**, because it doesn't fit in 4 GB next to the kind cluster.
+
+**Found while verifying:**
+- **The first WebSocket check after the deploy timed out again.** The socket opened and the hold returned 201, but no message arrived in 15 s. This is the same symptom as the first check in slice (b), and again it did not reproduce in eleven later runs.
+  - Disproved: a cold api-gateway. After `rollout restart` of the gateway, the first push arrived after 280 ms.
+  - Disproved: a cold booking-service. After a restart, the first push arrived after 1,055 ms.
+  - Both failures happened within about a minute of the Ingress being changed (slice (b): created; now: repointed to `frontend`). A Traefik reconfiguration window is the remaining candidate. It is **not verified**.
+- The hold from that failed run was never cancelled. It stayed `HELD` until its 10-minute TTL and then expired through `SeatHoldExpiredListener`.
+
+**Not changed, recorded for later:**
+- The gateway's CORS config is now unused by the app. It stays for direct API clients.
+- The gateway's `/actuator/health` is reachable from outside via `/api/actuator/health`. Before this slice it was reachable via `/actuator/health`. This belongs in the prod slice (e).
+
+**Next up:** (d) the dev deploy script against Rancher Desktop, including a cluster variant of `seed-events.js`; then (e) prod; (f) is optional.
 
 ---
 

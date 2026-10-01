@@ -1,6 +1,7 @@
-# All browser traffic enters through api-gateway, which already routes /bookings/ws/** to
-# booking-service's WebSocket endpoint (ADR-009). No ingressClassName: the cluster's default
-# ingress controller picks it up.
+# All browser traffic enters through the frontend's nginx: it serves the Angular app and proxies
+# /api/** (REST and the seat-status WebSocket) to api-gateway, stripping the prefix (ADR-019).
+# A single rule keeps this Ingress controller-neutral — prefix stripping would otherwise need
+# controller-specific annotations. No ingressClassName: the cluster's default controller picks it up.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -13,6 +14,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: api-gateway
+                name: frontend
                 port:
                   number: 8080
