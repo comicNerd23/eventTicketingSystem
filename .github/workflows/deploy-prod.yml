@@ -1,0 +1,80 @@
+# Deploys one release tag to the prod k3s VM (ADR-021 slice (e3)). Manual only: enter the tag
+# that the "Release images" workflow built, e.g. sha-1234567 or v1.0.0. A rollback is the same
+# run with an older tag.
+#
+# The Kubernetes API is never exposed: the job opens an SSH tunnel to the VM and runs
+# deploy-prod.js through it, the same script used for local verification.
+#
+# Environment "production" (Settings → Environments) holds:
+#   secrets  PROD_SSH_PRIVATE_KEY   private half of the deploy key (its public half is in
+#                                   ~/.ssh/authorized_keys on the VM)
+#            PROD_SSH_KNOWN_HOSTS   `ssh-keyscan -t ed25519 <IP>`, so the host key is pinned
+#            PROD_KUBECONFIG        /etc/rancher/k3s/k3s.yaml from the VM (server stays 127.0.0.1)
+#            DB_PASSWORD            Postgres password for every service
+#   vars     PROD_SSH_TARGET        e.g. ubuntu@203.0.113.10
+#            PROD_BASE_URL          e.g. http://203.0.113.10
+#            GATEWAY_CORS_ALLOWED_ORIGINS   the same origin as PROD_BASE_URL
+name: Deploy prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to deploy (sha-1234567 or vX.Y.Z)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy ${{ inputs.tag }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.PROD_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: SSH key, pinned host key and kubeconfig
+        env:
+          SSH_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
+          KUBECONFIG_CONTENT: ${{ secrets.PROD_KUBECONFIG }}
+        run: |
+          install -m 700 -d ~/.ssh ~/.kube
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf '%s\n' "$KUBECONFIG_CONTENT" > ~/.kube/config
+          chmod 600 ~/.kube/config
+          # k3s names its context "default"; rename it so the deploy names its target explicitly.
+          kubectl config rename-context default prod
+
+      - name: Tunnel to the Kubernetes API
+        env:
+          SSH_TARGET: ${{ vars.PROD_SSH_TARGET }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes \
+            -o ServerAliveInterval=30 -fN -L 6443:127.0.0.1:6443 "$SSH_TARGET"
+          kubectl --context prod get nodes -o wide
+
+      - name: Deploy
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          GATEWAY_CORS_ALLOWED_ORIGINS: ${{ vars.GATEWAY_CORS_ALLOWED_ORIGINS }}
+          TAG: ${{ inputs.tag }}
+          BASE_URL: ${{ vars.PROD_BASE_URL }}
+        run: node deploy-prod.js --context=prod --tag="$TAG" --base-url="$BASE_URL"
+
+      - name: Close the tunnel
+        if: always()
+        run: pkill -f "ssh .* -L 6443:127.0.0.1:6443" || true

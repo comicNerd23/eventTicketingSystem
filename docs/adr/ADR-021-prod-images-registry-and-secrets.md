@@ -124,6 +124,39 @@ What was built:
 - `k8s-helpers.js` holds the kubectl, rollout and smoke-check helpers shared with
   `deploy-dev.js`.
 
+## Decision (e3)
+
+Facts checked first:
+- **A self-hosted runner on the VM is out.** GitHub advises against self-hosted runners on
+  public repositories, because a fork's pull request can run code on them
+  ([background](https://www.legitsecurity.com/blog/securing-your-ci/cd-pipeline-exploring-the-dangers-of-self-hosted-agents)).
+  The deploy therefore runs on a GitHub-hosted runner, which has to reach the VM.
+- **Oracle blocks traffic twice.** A port must be open in the VCN security list **and** in the
+  Ubuntu image's iptables rules, before the image's own REJECT rule
+  ([Oracle blog](https://blogs.oracle.com/developers/enabling-network-traffic-to-ubuntu-images-in-oracle-cloud-infrastructure)).
+
+Choices, made with the user:
+- **An SSH tunnel to the k3s API (chosen).** The alternatives were Tailscale, which means
+  another account, and a public port 6443, which is not recommended. The job runs
+  `ssh -L 6443:127.0.0.1:6443` with a dedicated deploy key, and the host key is pinned through
+  `known_hosts`. The API port is never opened.
+- **Plain HTTP on the public IP first.** TLS (sslip.io or a domain, plus Let's Encrypt) follows
+  as its own slice.
+- **Manual deploys with a tag input** (`workflow_dispatch`) in a GitHub environment named
+  `production`. The alternatives were deploying on every `v*` tag or on every push.
+- **Ubuntu 24.04** on the A1 VM. The alternative was Oracle Linux 9 with SELinux.
+
+What was built:
+- **`k8s/prod/setup-k3s.sh`** runs once on the VM and can be re-run safely. It opens 80/443 in
+  iptables before the first REJECT, removes the image's blanket FORWARD REJECT (pod traffic is
+  forwarded) and persists the rules. Then it installs k3s **`v1.36.4+k3s1`**, the stable channel
+  and the same version as Rancher Desktop, and waits for the node.
+- **`.github/workflows/deploy-prod.yml`** reads the kubeconfig, deploy key and `known_hosts`
+  from the environment's secrets, renames the k3s context to `prod`, opens the tunnel and runs
+  `deploy-prod.js --context=prod`.
+- **`docs/runbooks/prod-vm.md`** lists the user's steps: the Oracle account, the instance and
+  security list, the deploy key, and the environment secrets set with `gh secret set` over stdin.
+
 **Known limit:** Postgres sets its password only when its volume is first initialized. Changing
 `DB_PASSWORD` later updates the Secret, but not the database user. A password rotation needs an
 `ALTER USER` in Postgres as well.

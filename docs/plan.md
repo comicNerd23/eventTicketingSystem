@@ -780,7 +780,37 @@ Documented in ADR-021, section "Decision (e2)".
 - Changing `DB_PASSWORD` after the first deploy updates the Secret but not the Postgres user, because the password is set only on volume initialization. A rotation needs an `ALTER USER`.
 - The kind node still holds the newer `frontend:dev` image from the accidental run. The pods use the old one until the next `deploy-dev.js frontend`.
 
-**Next up:** (e3) the Oracle A1 VM (the user creates the account and the VM; I can't create accounts), k3s, and a deploy job in GitHub Actions that runs `deploy-prod.js` with the secrets.
+### 2026-10-01 — prod VM and deploy job (ADR-016 slice (e3)), prepared, waiting on the VM
+
+Documented in ADR-021, section "Decision (e3)". **Decisions made with the user:**
+- An SSH tunnel to the k3s API. The alternatives were Tailscale or a public port 6443.
+- HTTP on the IP first, with TLS as its own slice.
+- Manual deploys with a tag input, in a `production` environment.
+- Ubuntu 24.04.
+
+A self-hosted runner on the VM was ruled out, because GitHub advises against them on public repositories.
+
+**What was added:**
+- `k8s/prod/setup-k3s.sh` for the VM: firewall plus k3s `v1.36.4+k3s1`.
+- `.github/workflows/deploy-prod.yml`: SSH tunnel, then `deploy-prod.js --context=prod`.
+- `docs/runbooks/prod-vm.md`: the user's steps.
+
+**Verified without a VM:**
+- `k3s v1.36.4+k3s1` is the current stable channel and has an arm64 binary.
+- actionlint and shellcheck report no findings.
+- **The firewall part of `setup-k3s.sh` was run twice** in a privileged `ubuntu:24.04` container seeded with the Oracle image's default rules:
+  - 80 and 443 were inserted before the REJECT rule.
+  - No rule was duplicated on the second run.
+  - The FORWARD REJECT rule was removed.
+
+**Not verified yet:**
+- The k3s install on the real A1 VM.
+- The SSH tunnel from a hosted runner.
+- The first real deploy.
+
+These need the user's Oracle account and VM (runbook steps 1, 2 and 4); I can't create accounts.
+
+**Next up:** the user follows `docs/runbooks/prod-vm.md` steps 1–4, then the first `Deploy prod` run verifies e3. After that, TLS, then (f) Rancher Manager, which is optional.
 
 ---
 
