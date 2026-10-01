@@ -161,6 +161,15 @@ See [ADR-018](docs/adr/ADR-018-kubernetes-base-manifests-and-ingress.md),
 [ADR-019](docs/adr/ADR-019-containerized-frontend-and-same-origin-api.md) and
 [ADR-020](docs/adr/ADR-020-dev-deploy-script.md).
 
+## Prod deploy
+
+`deploy-prod.js` deploys `k8s/overlays/prod` with a release tag. The secrets come from the
+environment and are never written to the repository (ADR-021):
+
+```bash
+DB_PASSWORD=… GATEWAY_CORS_ALLOWED_ORIGINS=https://…   node deploy-prod.js --context=<kube-context> --tag=sha-1234567 --base-url=https://…
+```
+
 ## Release images
 
 `.github/workflows/release-images.yml` (manual or on a `v*` tag) builds all seven images natively

@@ -36,7 +36,7 @@ node deploy-dev.js [targets...] [--no-build] [--seed]   # kind -> :8000, Rancher
 node seed-events.js --k8s [--base-url=http://localhost]
 ```
 
-Docker Desktop (compose, Testcontainers, kind) and Rancher Desktop share one 4 GB WSL VM on this machine — never run both. Rancher Desktop serves the docker `default` context (`npipe:////./pipe/docker_engine`); the CLI's own context often stays `desktop-linux`. After Docker Desktop restarts, stopped compose app containers may come back and crash-loop; stop them before using kind.
+Docker Desktop (compose, Testcontainers, kind) and Rancher Desktop share one 4 GB WSL VM on this machine — never run both. Rancher Desktop serves the docker `default` context (`npipe:////./pipe/docker_engine`); the CLI's own context often stays `desktop-linux`. Compose app services use `restart: unless-stopped`. With the old `on-failure`, JVMs stopped with exit code 143 came back after every engine restart and crash-looped.
 
 If containers look broken after a host restart, check `docker compose -f docker/docker-compose.yml ps -a` (the `-a` matters — infra containers can sit `Exited` while app containers crash-loop against them). Bring infra up first, then restart the six app services.
 
@@ -57,6 +57,8 @@ npx ng test
 ```
 
 **Release images** — `.github/workflows/release-images.yml` (manual or `v*` tag) pushes multi-arch (amd64 + arm64, native runners) images to `ghcr.io/comicnerd23/ticketing/<target>:sha-<7>`; immutable tags only, public packages (ADR-021). The repo is public, so Actions minutes are free.
+
+**Prod deploy** — `node deploy-prod.js --context=<ctx> --tag=<sha-1234567|vX.Y.Z> --base-url=<url>` with `DB_PASSWORD` and `GATEWAY_CORS_ALLOWED_ORIGINS` in the environment. It needs an explicit context, accepts only immutable tags, checks the tag in GHCR first, and creates the Secret and ConfigMap via stdin. `k8s/overlays/prod` holds no secrets and only a `set-by-deploy` tag placeholder. The frontend nginx returns 404 for `/api/actuator` (ADR-021).
 
 **CI locally** — `ci.js` runs exactly what `.github/workflows/ci.yml` runs per job (ADR-015): `node ci.js <service> [--docker]`, `node ci.js frontend [--docker]`, `node ci.js all`. Testcontainers should use the local Docker runtime rather than Testcontainers Cloud (free plan capped at 50 min/month).
 

@@ -722,7 +722,65 @@ Documented as `docs/adr/ADR-021-prod-images-registry-and-secrets.md`. Slice (e) 
 - **The images inherited the Ubuntu base image's `title` and `description` labels**, which GHCR shows on the package page. The workflow now overrides both. This takes effect on the next release run and is **not verified yet**.
 - `docker image inspect` on the multi-platform pull showed no labels. That is a display quirk of Docker Desktop's containerd store; the registry config has them.
 
-**Next up:** (e2) the prod overlay (GHCR images by `sha-` tag, Secrets, the prod profile), verified locally; then (e3) the Oracle A1 VM (the user creates the account and VM), k3s and a deploy job.
+The second release run for `37dd842` ([run 36860983885](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/36860983885)) was green in about a minute thanks to the layer cache. The registry config now has `title: ticketing/booking-service` and the project's own description, so **the label fix is verified**.
+
+### 2026-10-01 — prod overlay and deploy-prod.js (ADR-016 slice (e2)), done
+
+Documented in ADR-021, section "Decision (e2)".
+
+**Decisions made with the user:**
+- **`deploy-prod.js`, also used by the e3 deploy job.** The alternative was inline workflow steps.
+- **The tag is inserted at deploy time.** The alternative was GitOps commits.
+- **The actuator is closed in the frontend nginx.** The alternatives were a Traefik middleware or leaving it open.
+- **Rancher Desktop as the test cluster**, rather than kind.
+
+**What was added:**
+- `k8s/overlays/prod` maps the GHCR images with a `set-by-deploy` tag. It has no Secret and no ConfigMap.
+- `deploy-prod.js` requires an explicit context and accepts only immutable tags.
+  - It checks the tag in GHCR for all 7 images.
+  - It writes the Secret and ConfigMap from environment variables via stdin.
+  - It renders and applies the overlay, waits for rollouts, and runs a smoke check that includes `/api/actuator/health` → 404.
+- The frontend nginx has `location ^~ /api/actuator { return 404; }`.
+- `k8s-helpers.js` holds the code shared with `deploy-dev.js`.
+
+**Found while building:**
+- **`deploy-dev.js` split the docker context list on the letter "s"** (`/s+/` instead of `/\s+/`): a heredoc had swallowed the backslash. Rancher Desktop still worked because the script always fell back to `default`. Fixed in the move to `k8s-helpers.js`.
+- **My own mistake:** `node -e 'require("./deploy-dev.js")'` ran the script with no arguments.
+  - It rebuilt all images from cache and loaded them into kind, then died on the closed output pipe before the apply. The running pods were untouched.
+  - `deploy-prod.js` now only runs `main()` when started directly (`require.main === module`).
+
+**Verified offline:**
+- The rendered overlay has 7 GHCR images with the placeholder and no Secret or `gateway-config`.
+- The guards work:
+  - No arguments → exit 2.
+  - `--tag=latest` is refused.
+  - A missing `DB_PASSWORD` is refused.
+  - An unknown context gives "not reachable".
+- The tag check passes `sha-37dd842` and stops `sha-0000000` at HTTP 404 before anything is applied.
+- A frontend image built locally returns 404 for `/api/actuator`, `/api/actuator/health`, `/api/actuator/prometheus` and `/api/actuatorx`. `/api/events` is still proxied.
+
+**Verified on Rancher Desktop** (k3s 1.36.4), with release images `sha-8b82a63` from [run 36881994733](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/36881994733) and a freshly deleted `ticketing` namespace, using a randomly generated test password:
+- **First deploy:** the tag check, Secret, ConfigMap and apply all worked, and the images were pulled from GHCR. **The rollout then timed out.**
+  - Cause: the six compose app containers on Rancher Desktop's engine had come back and were crash-looping, pushing the load to 33.
+  - See the restart-policy fix below.
+- **Second deploy** onto the existing state, after stopping them: **105 s, exit 0.**
+  - The smoke check passed: `/` 200, `/api/events` 200, **`/api/actuator/health` 404**.
+  - The Deployments stayed unchanged, so a repeat deploy is idempotent. Only the Secret reports "configured", because apply rewrites its own annotation.
+- The test password appears **0 times** in the deploy logs, and the Secret holds it, not the dev password.
+- `seed-events.js --k8s` created 13 events. A hold pushed `HELD` over the WebSocket after 829 ms and then 84 ms.
+
+**Root cause of the recurring revived compose containers** (three times now: twice on Docker Desktop, once on Rancher Desktop):
+- The JVMs exit with **143** (SIGTERM) or **137** on `docker stop`. `restart: on-failure` treats that as a failure, so the engine restarts them when it starts.
+- Postgres and Redis exit 0 with no restart policy and stay down, so the apps crash-loop.
+- **Fix:** `restart: unless-stopped` for the seven app services in `docker-compose.yml`.
+- **Verified on Docker Desktop:** the existing containers were switched with `docker update`, exit code 143 was kept, and Docker Desktop was restarted. **0 compose containers came back**, compared with all six before the change.
+- New containers created by compose get the new policy from the file.
+
+**Not changed, recorded for later:**
+- Changing `DB_PASSWORD` after the first deploy updates the Secret but not the Postgres user, because the password is set only on volume initialization. A rotation needs an `ALTER USER`.
+- The kind node still holds the newer `frontend:dev` image from the accidental run. The pods use the old one until the next `deploy-dev.js frontend`.
+
+**Next up:** (e3) the Oracle A1 VM (the user creates the account and the VM; I can't create accounts), k3s, and a deploy job in GitHub Actions that runs `deploy-prod.js` with the secrets.
 
 ---
 

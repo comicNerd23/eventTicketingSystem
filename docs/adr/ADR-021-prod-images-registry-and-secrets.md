@@ -88,8 +88,45 @@ Facts checked on 2026-10-01:
 - The `org.opencontainers.image.source` label links each package to this repository. That
   gives the workflow's `GITHUB_TOKEN` write access on later runs.
 
-e2 (the prod overlay and Secrets) and e3 (the VM, k3s and the deploy job) follow, using the
-decisions above.
+## Decision (e2)
+
+Further choices, made with the user:
+- **The image tag is inserted at deploy time, not committed (GitOps was the alternative).** A
+  deploy or rollback needs no commit. What runs is visible in the cluster and in the deploy
+  job's log.
+- **The gateway's actuator is closed at the frontend nginx (Traefik middleware was the
+  alternative).** That keeps the Ingress controller-neutral (ADR-018), and the rule is the same
+  in dev and prod.
+- **The local test cluster is Rancher Desktop**, which runs k3s with Traefik like prod. kind was
+  the alternative.
+
+What was built:
+- **`k8s/overlays/prod`** maps each `ticketing/<target>` to
+  `ghcr.io/comicnerd23/ticketing/<target>` with the tag `set-by-deploy`. It defines no Secret
+  and no ConfigMap, because the repository is public.
+- **`deploy-prod.js --context=<ctx> --tag=<sha-…|vX.Y.Z> --base-url=<url>`** is the one deploy
+  path, run locally and by the e3 deploy job. In order, it:
+  - requires an **explicit kube-context**. Unlike `deploy-dev.js`, it never uses the current
+    one.
+  - accepts **only immutable tags** (`sha-<7 hex>` or `vX.Y.Z`; `latest` is refused).
+  - checks with an anonymous GHCR token that the tag exists for **all seven** images, before
+    anything is applied.
+  - writes the namespace, the `db-credentials` Secret and the `gateway-config` ConfigMap from
+    `DB_PASSWORD`, `GATEWAY_CORS_ALLOWED_ORIGINS` and `DB_USERNAME` (default `ticketing`). They
+    go to `kubectl apply -f -` on **stdin**, so values never appear on a command line or in the
+    log.
+  - renders the overlay, replaces exactly seven placeholders, applies it and waits for every
+    rollout.
+  - smoke-tests through the Ingress: the app shell, `/api/events`, and **`/api/actuator/health`
+    must return 404**.
+- **The frontend nginx returns 404 for `location ^~ /api/actuator`.** Probes and later
+  Prometheus reach the pods directly, inside the cluster.
+- `k8s-helpers.js` holds the kubectl, rollout and smoke-check helpers shared with
+  `deploy-dev.js`.
+
+**Known limit:** Postgres sets its password only when its volume is first initialized. Changing
+`DB_PASSWORD` later updates the Secret, but not the database user. A password rotation needs an
+`ALTER USER` in Postgres as well.
 
 ## Consequences
 

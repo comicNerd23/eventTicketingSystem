@@ -68,7 +68,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       EVENT_SERVICE_BASE_URL: http://event-service:8081
-    restart: on-failure
+    restart: unless-stopped
 
   event-service:
     build:
@@ -82,7 +82,7 @@ services:
       DB_USERNAME: ticketing
       DB_PASSWORD: ticketing
       BOOKING_SERVICE_BASE_URL: http://booking-service:8082
-    restart: on-failure
+    restart: unless-stopped
 
   payment-service:
     build:
@@ -96,7 +96,7 @@ services:
       DB_USERNAME: ticketing
       DB_PASSWORD: ticketing
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-    restart: on-failure
+    restart: unless-stopped
 
   notification-service:
     build:
@@ -110,7 +110,7 @@ services:
       DB_USERNAME: ticketing
       DB_PASSWORD: ticketing
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-    restart: on-failure
+    restart: unless-stopped
 
   waitlist-service:
     build:
@@ -125,7 +125,7 @@ services:
       DB_PASSWORD: ticketing
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       EVENT_SERVICE_BASE_URL: http://event-service:8081
-    restart: on-failure
+    restart: unless-stopped
 
   api-gateway:
     build:
@@ -141,7 +141,7 @@ services:
       PAYMENT_SERVICE_BASE_URL: http://payment-service:8083
       NOTIFICATION_SERVICE_BASE_URL: http://notification-service:8084
       WAITLIST_SERVICE_BASE_URL: http://waitlist-service:8085
-    restart: on-failure
+    restart: unless-stopped
 
   # Containerized Angular app (ADR-019); proxies /api/** to api-gateway. Host port 8000 matches the
   # kind cluster's Ingress, so the app has the same URL in both setups (they don't run together).
@@ -154,7 +154,7 @@ services:
       - "8000:8080"
     environment:
       API_GATEWAY_URL: http://api-gateway:8080
-    restart: on-failure
+    restart: unless-stopped
 
   prometheus:
     image: prom/prometheus:v2.55.1
