@@ -661,7 +661,25 @@ Documented as `docs/adr/ADR-020-dev-deploy-script.md`.
 
 **Not changed, recorded for later:**
 - `demo.js` still calls each service on its own port, so in a cluster it needs `kubectl port-forward`.
-- The compose stack and Testcontainers on Rancher Desktop are **not verified**. Both would decide whether Docker Desktop can be dropped entirely.
+- The compose stack and Testcontainers on Rancher Desktop were verified afterwards, see the next entry.
+
+### 2026-10-01 — slice (d) pushed; compose and Testcontainers on Rancher Desktop
+
+`71947b4` was pushed. [Run 36854677167](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/36854677167) was green, but only the change detection ran, because `deploy-dev.js` and `seed-events.js` match no job path filter.
+
+**Can Rancher Desktop replace Docker Desktop entirely?** Both checks were run on Rancher Desktop with Kubernetes disabled (moby engine only), with Docker Desktop stopped:
+- **Testcontainers:** `mvn test` in waitlist-service ran with `DOCKER_HOST=npipe:////./pipe/docker_engine` and `TESTCONTAINERS_DOCKER_CLIENT_STRATEGY=…EnvironmentAndSystemPropertyClientProviderStrategy`, set only for that run. That bypasses the Testcontainers Desktop proxy (`tc.host`) without touching `~/.testcontainers.properties`.
+  - Testcontainers logged `Resolved dockerHost=npipe:////./pipe/docker_engine` and the engine reported `Rancher Desktop WSL Distribution`.
+  - **All 23 tests passed in 76 s.** The ryuk, `postgres:15-alpine` and `cp-kafka:7.5.0` containers ran on Rancher Desktop.
+- **docker-compose:** `docker compose` (v5.3.1, bundled with Rancher Desktop) with `DOCKER_CONTEXT=default`. The images were built one at a time, and the build cache from the `deploy-dev.js` run made them take 13 s. All 14 containers ran.
+  - `seed-events.js` created 13 events.
+  - **`demo.js` ran end to end**: HELD → PAYMENT_PENDING → CONFIRMED, payment SUCCEEDED → REFUNDED after the cancel, waitlist PROMOTED, three notifications SENT.
+  - The frontend on :8000 returned the app, and `/api` reached the gateway.
+  - The first `seed-events.js` attempt timed out, because event-service needed 73 s for its cold start against a 60 s wait. That is not specific to Rancher Desktop.
+- **Result:** for this project Rancher Desktop covers everything Docker Desktop was used for. That is compose, Testcontainers, image builds, and the dev Kubernetes cluster, which replaces kind.
+  - Not checked: Testcontainers through the Testcontainers Desktop app pointed at Rancher Desktop, and `ci.js` across all services.
+  - A permanent switch also needs `docker context use default` and the doc updates (README prerequisites).
+- **Reproduced:** after Docker Desktop started again, the six stopped compose app containers were running again and had to be stopped before kind recovered (all pods Ready after about 120 s).
 
 **Next up:** (e) prod: Secrets, a registry with immutable tags, a deploy job, and multi-arch images (cp-kafka arm64 or KRaft). (f) Rancher Manager is optional.
 
