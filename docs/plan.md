@@ -832,11 +832,20 @@ The user created the Oracle account, the VM, the deploy key and the `production`
 - `actions/setup-node@v4` targets Node 20, which is deprecated, and the runner forces it to Node 24.
 - `ubuntu-latest` moves to Ubuntu 26 from 2026-10-19.
 
-**Not verified yet:**
-- Seeding prod with runbook part D, which has never run against the real VM.
-- The booking, payment and WebSocket flow on prod.
+**Seeded on 2026-10-04 with runbook part D**, run by the user. Afterwards `GET /api/events` from outside returned all 13 events.
+- **First attempt:** `ssh: connect to host  port 22: Connection refused`. `$IP` was empty because it had been set in another shell. Nothing was changed: the main `~/.kube/config` stayed untouched, and the prod kubeconfig was only a stub without credentials.
+- **Runbook fixes:**
+  - Part D now sets `IP` itself and stops on an empty value (`: "${IP:?}"`).
+  - It says to run every step in one window.
+  - The troubleshooting table has a row for the two-space error.
+- **The old cleanup line was wrong on Windows:**
+  - Git Bash has no `pkill`, and the fallback `taskkill //IM ssh.exe` stops every SSH process.
+  - Part D now stops only the tunnel process through PowerShell.
+  - **My own mistake while testing it:** the first version also matched its own PowerShell command line and killed itself. It now filters on `ssh.exe`.
 
-**Next up:** seed prod (part D), then TLS as its own slice. That slice needs a free domain choice first.
+**Not verified yet:** the booking, payment and WebSocket flow on prod.
+
+**Next up:** a booking and WebSocket check on prod, then TLS as its own slice. TLS needs a free domain choice first.
 
 ---
 

@@ -309,9 +309,14 @@ tables with `kubectl exec` in the **current kube-context**. Point it at prod del
 separate kubeconfig and a local tunnel. Port 16443 avoids clashing with a local Rancher Desktop or
 kind API on 6443.
 
-> Not yet run against the real VM; verify the context in step 3 before step 4.
+Run all steps in **one** Git Bash window: `IP` and `KUBECONFIG` are shell variables and don't
+carry over to another window. Verify the context in step 3 before step 4.
 
 ```bash
+# 0. The VM's public IP; the second line stops here if it is empty
+IP=<public IP of the VM>
+: "${IP:?IP is empty}"
+
 # 1. A local copy of the kubeconfig, pointing at the tunnel port
 ssh -i ~/.ssh/ticketing-deploy ubuntu@$IP sudo cat /etc/rancher/k3s/k3s.yaml > ~/.kube/ticketing-prod.yaml
 export KUBECONFIG="$(cygpath -w ~/.kube/ticketing-prod.yaml)"
@@ -328,8 +333,11 @@ node seed-events.js --k8s --base-url=http://$IP
 
 # 5. Clean up
 unset KUBECONFIG
-pkill -f "16443:127.0.0.1:6443" || taskkill //F //IM ssh.exe
+powershell -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.Name -eq "ssh.exe" -and $_.CommandLine -like "*16443:127.0.0.1:6443*" } | ForEach-Object { Stop-Process -Id $_.ProcessId }'
 ```
+
+Step 5 stops only the tunnel, not other SSH sessions. Git Bash has no `pkill`, and
+`taskkill //IM ssh.exe` would stop every SSH process.
 
 Delete `~/.kube/ticketing-prod.yaml` afterwards if you don't need it again; it is the admin
 credential.
@@ -343,6 +351,7 @@ credential.
 | "Assign a public IPv4 address" is greyed out | The subnet is private. Select a public subnet, or add an ephemeral IP afterwards (A4). |
 | "Out of capacity" when creating the instance | No free A1 capacity right now. Try another availability domain or later. |
 | B7 lists only 3 secrets, `DB_PASSWORD` missing | `gh` didn't prompt in Git Bash. Set it with the `read -rs` pipe from B5. |
+| `ssh: connect to host  port 22: Connection refused` (two spaces) | `$IP` is empty, usually because it was set in another window. Set it again in this one (D, step 0). |
 | `ssh: Permission denied (publickey)` | `-i ~/.ssh/ticketing-deploy` missing, or the instance was created with a different key: add `ticketing-deploy.pub` to `~/.ssh/authorized_keys` on the VM. |
 | `curl http://$IP/` times out | Port 80 blocked: check the ingress rule (A5), then re-run `setup-k3s.sh` (A7). |
 | Deploy job fails at "Tunnel" with `Host key verification failed` | The VM was recreated or its IP changed. Redo B3, and B6 for a new IP. |
