@@ -43,6 +43,15 @@ as follow-ups, both free for public repositories, and the user asked to turn the
     `@angular-devkit/*`, `@schematics/angular`). Its packages pin each other to the exact same
     version, so the first security PR, which bumped only `@angular/router`, failed `npm ci` with
     `ERESOLVE`. Angular is bumped with `ng update`, which updates the whole group.
+    **TypeScript belongs to the group** too, because Angular decides which TypeScript versions it
+    supports. A separate PR proposed TypeScript 7 for Angular 21.
+  - **Angular majors are a slice of their own.** The first version run opened one PR per package
+    for Angular 22. Those were closed: a major upgrade runs through `ng update` with its
+    migrations and gets its own review, not a Dependabot merge.
+  - **The `maven` build image is excluded** from Docker updates. Its tags carry the JDK in the
+    suffix (`3.9-eclipse-temurin-25`), and Dependabot proposed `3-eclipse-temurin-24`, a JDK
+    downgrade that broke every service's Docker build. It is updated by hand together with the JDK.
+    The runtime image `eclipse-temurin:25-jre` stays covered.
 - **No auto-merge.** Every update PR runs CI with the full test suite and is merged by hand.
 
 How it fits with the existing checks:

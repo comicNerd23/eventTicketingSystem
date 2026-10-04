@@ -22,7 +22,8 @@ updates:
   # Angular's packages pin each other to the exact same version (peer dependencies), so they must
   # move together: a PR that bumps only @angular/router fails `npm ci` with ERESOLVE (2026-10-04,
   # PR #1). The angular groups come first, because a dependency joins the first group it matches;
-  # one covers version updates, the other security updates.
+  # one covers version updates, the other security updates. TypeScript is in the group because
+  # Angular decides which TypeScript versions it supports (PR #9 tried TypeScript 7 on Angular 21).
   - package-ecosystem: npm
     directory: /frontend
     schedule:
@@ -32,10 +33,10 @@ updates:
     groups:
       angular:
         applies-to: version-updates
-        patterns: ["@angular/*", "@angular-devkit/*", "@schematics/angular"]
+        patterns: ["@angular/*", "@angular-devkit/*", "@schematics/angular", "typescript"]
       angular-security:
         applies-to: security-updates
-        patterns: ["@angular/*", "@angular-devkit/*", "@schematics/angular"]
+        patterns: ["@angular/*", "@angular-devkit/*", "@schematics/angular", "typescript"]
       npm-minor-patch:
         update-types: [minor, patch]
     commit-message:
@@ -52,9 +53,14 @@ updates:
     commit-message:
       prefix: "chore(ci)"
 
-  # Base images in the seven Dockerfiles (eclipse-temurin, maven, node, nginx-unprivileged).
+  # Base images in the seven Dockerfiles (eclipse-temurin, node, nginx-unprivileged).
+  # The maven build image is excluded: its tags put the JDK in the suffix (3.9-eclipse-temurin-25),
+  # and Dependabot proposed 3-eclipse-temurin-24, a JDK downgrade that breaks the Java 25 build
+  # (PR #11). Update it by hand together with the JDK.
   - package-ecosystem: docker
     directories: ["/services/*", "/frontend"]
+    ignore:
+      - dependency-name: maven
     schedule:
       interval: weekly
       day: monday

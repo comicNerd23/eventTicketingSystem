@@ -1077,6 +1077,21 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
 - **Verified locally:** all `@angular/*` packages are on one version, with no invalid entries in `npm ls`. 34 tests pass (88.9 % line coverage), `ng build` succeeds, and `npm audit --omit=dev` finds **0 vulnerabilities**. 15 dev-only findings remain, partly covered by #2–#5.
 - PR #1 was closed in favour of this change.
 
+**Verified:** [CI run 37228192251](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37228192251) (push of `74ea910`) is green, and the frontend's Sonar gate passed.
+- **Dependabot alerts went from 24 to 17.** `@angular/router`, `qs` and part of the `undici` alerts are fixed through the regenerated lockfile, and Dependabot closed PR #2 itself.
+- **Not seen:** a CodeQL run on that push. Default setup didn't run on every push here; the weekly scan covers it.
+
+**The first version-update run** (from the first `dependabot.yml`, before the Angular group existed) opened PRs #6–#16. The user reviewed them. Sorted:
+- **Closed with a reason:**
+  - **#7, #8, #10:** Angular 22, one package per PR. #7 and #10 failed with `ERESOLVE`. → Angular 22 becomes a slice of its own, using `ng update`.
+  - **#9:** TypeScript 7 on Angular 21, failed and conflicted.
+  - **#11:** the Docker group. It "updated" `maven:3.9-eclipse-temurin-25` to `maven:3-eclipse-temurin-24`, a JDK downgrade, so all six service Docker builds failed. The tests themselves passed.
+- **`dependabot.yml` changes:** `typescript` joins both Angular groups, and the Docker updates ignore the `maven` image.
+- **Merged** after green CI: the security and minor updates #3, #4, #5, #6, #13, #14, #15 and #16.
+- **#12** (Node 24 → 26 in the frontend's build image, a major) is left for a separate decision.
+
+**Next, a slice of its own:** Angular 21 → 22 with `ng update` (including TypeScript), when the user wants it.
+
 ---
 
 ## Outstanding housekeeping
