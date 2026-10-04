@@ -90,8 +90,7 @@ in Git Bash `gh secret set` doesn't prompt by itself):
 
 ```bash
 read -rs -p "SonarQube Cloud token: " T; echo
-printf '%s' "$T" | tr -d '
- ' | gh secret set SONAR_TOKEN   # no stray  from pasting
+printf '%s' "$T" | tr -d '\r\n ' | gh secret set SONAR_TOKEN   # no stray \r from pasting
 unset T
 gh variable set SONAR_ORGANIZATION --body "<organization key>"
 gh secret list; gh variable list    # SONAR_TOKEN and SONAR_ORGANIZATION are listed
@@ -120,7 +119,7 @@ issues, coverage and duplication on SonarQube Cloud.
 | `Project not found` or `You're not authorized to analyze this project` | The project key doesn't match `<org>_<target>`, or the token belongs to another account (step 3). |
 | `You are running CI analysis while Automatic Analysis is enabled` | Turn it off in that project's **Administration → Analysis Method**. |
 | An extra project named after the repository (e.g. `<Org>_eventTicketingSystem`) | Created by the repository import after step 2, or by picking the repository without **Setup a monorepo**. Delete it: open the project → **Administration → Deletion** (the menu is hidden while the project only shows its setup screen; open **Overview** first). Organization admins can also use the organization's **Administration → Projects Management**. As a last resort, use the Web API: `curl -u "$T:" -X POST "https://sonarcloud.io/api/projects/delete?project=<key>"` returns 204. |
-| `Failed to query JRE metadata: invalid header value` (Maven) or `403` (frontend) on the first run | The secret has a stray ``/newline from pasting, or the token is wrong. `ci.js` strips whitespace and logs the token's length and character set (never the value). If it still fails, generate a new token and set it again (step 4). |
+| `Failed to query JRE metadata: invalid header value` (Maven) or `403` (frontend) on the first run | The secret has a stray `\r` or newline from pasting, or the token is wrong. `ci.js` strips whitespace and logs the token's length and character set (never the value). If it still fails, generate a new token and set it again (step 4). |
 | CI suddenly fails with `Not authorized` after weeks of working | The token expired. Generate a new one and set the secret again (step 4). |
 | `QUALITY GATE STATUS: FAILED` | Working as intended: new code has issues or too little coverage. The log links to the project page with the failed conditions. |
 | Coverage shows 0% | The report wasn't produced: `services/<name>/target/site/jacoco/jacoco.xml` or `frontend/coverage/frontend/lcov.info`. Check the test step of that job. |
