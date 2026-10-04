@@ -960,7 +960,9 @@ No breaking change applies:
 - Because `ci.yml` changed, every target ran: all six services and the frontend (8 Vitest files).
 - Every Testcontainers suite passed. Testcontainers 1.21.4 works with Docker 29.
 - **No annotations are left:** neither the Node 20 warning nor the Ubuntu migration notice.
-- `release-images.yml` and `deploy-prod.yml` run only when started by hand, so they haven't run on the new runners yet.
+- The two manual workflows, also green on the new runners, with no annotations:
+  - [Release images 37215744589](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37215744589) took 1m53s. All 14 native builds (`ubuntu-26.04` and `ubuntu-26.04-arm`) and 7 multi-arch merges passed, publishing `sha-1c46a8e`.
+  - [Deploy prod 37215749525](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37215749525) redeployed `sha-8b82a63` in 58 s. The certificate was unchanged (still signed by `letsencrypt-prod`, trusted), and the smoke check passed.
 
 ---
 
