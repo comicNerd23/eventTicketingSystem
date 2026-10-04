@@ -904,6 +904,33 @@ Documented in ADR-022, which also has a section on what an enterprise setup woul
 
 Both need the VM (runbook Part E). Port 443 is already open in the security list (the user's step).
 
+### 2026-10-04 — TLS live on prod (ADR-022), done
+
+The user opened port 443, switched `PROD_BASE_URL` and `GATEWAY_CORS_ALLOWED_ORIGINS` to `https://<IP with dashes>.sslip.io`, and ran runbook Part E with release `sha-8b82a63` (pushed code `dce95e8`):
+
+- **Staging,** [run 37212540349](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37212540349): **green, 87 s** in `deploy-prod.js`.
+  - The certificate went from `Ready=False` to `Ready=True`, signed by `letsencrypt-staging`. Its issuer was `Let's Encrypt / (STAGING) Ersatz Emmer YR2`, and Node did not trust it, as expected.
+  - The smoke check passed: `/` 200, `/api/events` 200, actuator 404, `http://…/api/events` 301.
+- **Prod,** [run 37212908972](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37212908972): **green, 62 s**.
+  - The wait first saw `Ready=False, signed by letsencrypt-staging`, so the check on the Secret's issuer annotation did its job.
+  - Then `Ready=True, signed by letsencrypt-prod`, with the issuer `Let's Encrypt / YR2`, valid until 2027-01-02, and **trusted by Node: yes**.
+  - The same smoke check passed.
+- **HTTP-01 worked next to the redirect,** on the first attempt for both issuers. The solver Ingress won over the app's redirect Middleware, as designed.
+
+**I re-checked from outside:**
+- `curl https://<host>/` returned 200 without `-k`.
+- The served certificate has `CN` and SAN set to the sslip.io name and the issuer `C=US, O=Let's Encrypt, CN=YR2`. It is valid from 2026-10-04 to 2027-01-02.
+- `http://<host>/api/events` → 301 to the HTTPS URL. The actuator returns 404.
+- The bare IP now returns 404 over both HTTP and HTTPS, as expected, because the Ingress only answers for its host.
+- The catalog is still there (13 events), and **the seat-status WebSocket opens over `wss://`**.
+
+**Slice done.** cert-manager renews the certificate about 30 days before it expires.
+
+**Possible follow-ups, not done:**
+- A scheduled check of the certificate's expiry.
+- `actions/setup-node` v4 → v6 (Node 24 natively).
+- `ubuntu-latest` moves to Ubuntu 26 from 2026-10-19.
+
 ### 2026-10-04 — Actions on Node 24, runners pinned to Ubuntu 26.04
 
 This fixes the two run annotations.
@@ -929,11 +956,6 @@ No breaking change applies:
 
 **Found:** actionlint 1.7.12, the latest release (2026-03-30), reports both labels as unknown. Its support for them is still in open PRs (rhysd/actionlint#743). `.github/actionlint.yaml` declares them until a release includes them, and actionlint then reports no findings.
 
----
-
-## Outstanding housekeeping
-
-- Testcontainers Cloud free plan is capped at 50 min/month — reserve integration test runs for genuine breakage or final pre-commit verification, not speculative re-runs. Since ADR-015, CI-like local runs (`node ci.js …`) should use Testcontainers Desktop's local Docker runtime instead, which is free and unlimited; GitHub Actions never uses Testcontainers Cloud.
 ---
 
 ## Outstanding housekeeping

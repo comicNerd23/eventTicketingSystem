@@ -138,6 +138,22 @@ add, and why it is deferred here:
 | **Certificate lifecycle management** | A central inventory, policy enforcement and expiry alerts (Venafi/CyberArk, Keyfactor). Keys sit in HSMs or a cloud KMS. | One certificate. The deploy prints its expiry, and a scheduled expiry check is a possible follow-up. |
 | **Short lifetimes, full automation** | The CA/Browser Forum's ballot SC-081v3 cuts the maximum public certificate lifetime to 200 days from 2026-03-15, 100 days from 2027-03-15 and **47 days from 2029-03-15** ([summary](https://www.appviewx.com/blogs/its-official-ca-b-forum-votes-yes-to-47-day-tls-certificates/)). Manual renewal stops being viable. | Already covered: cert-manager renews on its own. |
 
+## Verification
+
+- **Locally on Rancher Desktop** with the `selfsigned` issuer: the cert-manager install, the
+  Ingress TLS wiring, the redirect, a repeat deploy without reissue, and a failing
+  `letsencrypt-staging` run that stops early and prints Let's Encrypt's reason.
+- **On the VM on 2026-10-04,** with release `sha-8b82a63`:
+  - Staging, [run 37212540349](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37212540349),
+    then prod, [run 37212908972](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37212908972).
+    Both were green.
+  - HTTP-01 passed next to the redirect on the first attempt.
+  - The prod certificate is issued by Let's Encrypt `YR2`, is valid until 2027-01-02, and is
+    trusted by Node and by curl without `-k`.
+  - The WebSocket works over `wss://`.
+  - The bare IP now returns 404.
+- Details are in `docs/plan.md`.
+
 ## Consequences
 
 **Positive**
