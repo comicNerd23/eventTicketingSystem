@@ -1040,6 +1040,31 @@ The user created the organization `comicnerd23`, the seven monorepo projects and
 
 **SonarQube token:** the user chose **no expiration**. Such a token still lapses after 60 days without use, which is now noted in the runbook.
 
+### 2026-10-04 — CodeQL and Dependabot on (ADR-024)
+
+**Enabled through the repository API:**
+- Dependabot alerts (`PUT /vulnerability-alerts` → 204).
+- Dependabot security updates (`PUT /automated-security-fixes` → 204; it reads back `enabled: true`).
+- CodeQL default setup, `query_suite=default`.
+
+**`.github/dependabot.yml`:** weekly version updates on Mondays for Maven (`/services/*`), npm (`/frontend`), GitHub Actions and Docker (the seven Dockerfiles). Minor and patch updates are grouped into one PR per ecosystem, major updates come one by one, and nothing auto-merges.
+
+**First CodeQL run** ([37226819849](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37226819849), CodeQL 2.27.1): **green in 3m24s**.
+
+| Language | Rules | Findings |
+|---|---|---|
+| java-kotlin | 76 | 0 (build mode none, so Java 25 needs no build) |
+| javascript-typescript | 87 | 2 |
+| actions | 17 | 0 |
+
+**The two findings** are both `js/disabling-certificate-validation` (high), in `deploy-prod.js`. Both are deliberate (ADR-022):
+- **Line 234:** `rejectUnauthorized: false` in `inspectServedCertificate()`. The inspection has to read the certificate even when it isn't trusted, so it can print the issuer and expiry. It reports `socket.authorized` separately, and with `letsencrypt-prod` the deploy fails if the certificate isn't trusted.
+- **Line 291:** `NODE_TLS_REJECT_UNAUTHORIZED = "0"`, set only for `letsencrypt-staging` and `selfsigned`, whose certificates are untrusted by design. It only affects the deploy script's own smoke-check requests.
+
+Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning is the user's decision.
+
+**Noted:** CodeQL default setup runs on GitHub's own `ubuntu-latest` runner, so its jobs still show the Ubuntu 26 migration notice. Default setup can't pin the runner; only advanced setup (a workflow file) can.
+
 ---
 
 ## Outstanding housekeeping

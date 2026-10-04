@@ -1,0 +1,55 @@
+# Dependabot version updates (ADR-024). Security updates for known vulnerabilities are a separate
+# repository setting and arrive regardless of this schedule.
+#
+# Weekly, with minor and patch updates grouped into one pull request per ecosystem, so the six
+# services don't produce six PRs for the same library. Major updates come one by one: they can
+# break things (Spring Boot, Angular, Java) and are reviewed on their own. Every PR runs CI with
+# the full test suite; Dependabot PRs get no SONAR_TOKEN, so ci.js skips the SonarQube step there.
+version: 2
+updates:
+  - package-ecosystem: maven
+    directories: ["/services/*"]
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      maven-minor-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "chore(ci)"
+
+  # Base images in the seven Dockerfiles (eclipse-temurin, maven, node, nginx-unprivileged).
+  - package-ecosystem: docker
+    directories: ["/services/*", "/frontend"]
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      docker-minor-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "chore(docker)"

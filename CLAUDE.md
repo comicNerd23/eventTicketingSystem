@@ -11,7 +11,7 @@ A portfolio project: an event ticketing system (concerts, sports, theatre, comed
 The repo documents itself more than this file can — always check these before assuming behavior:
 
 - `docs/plan.md` — authoritative, dated project history: every slice, every real bug found and how it was fixed, current phase status. Read this to understand *why* the code looks the way it does.
-- `docs/adr/` — 23 Architecture Decision Records with the reasoning behind every non-obvious choice.
+- `docs/adr/` — 24 Architecture Decision Records with the reasoning behind every non-obvious choice.
 - `docs/diagrams/c4-diagram.md` — C4 Context + Container diagrams (Mermaid).
 - `specs/asyncapi/kafka-events.yaml` — the event catalog: every Kafka topic, publisher, consumer.
 - `specs/openapi/` — REST contract per service.
@@ -60,7 +60,7 @@ npx ng test
 
 **Prod deploy** — `node deploy-prod.js --context=<ctx> --tag=<sha-1234567|vX.Y.Z> --base-url=https://<ip-with-dashes>.sslip.io [--tls-issuer=letsencrypt-staging|letsencrypt-prod|selfsigned]` with `DB_PASSWORD` and `GATEWAY_CORS_ALLOWED_ORIGINS` in the environment. It needs an explicit context, accepts only immutable tags, checks the tag in GHCR first, and creates the Secret and ConfigMap via stdin. `k8s/overlays/prod` holds no secrets, only `set-by-deploy` placeholders for the tag, host and issuer. The frontend nginx returns 404 for `/api/actuator` (ADR-021). HTTPS (ADR-022): the script installs cert-manager from a pinned, sha256-checked manifest, `--base-url` must be `https://` on a host name (no bare IP), and it waits until the certificate comes from the chosen issuer. Use staging first after any TLS change. Port 80 stays open for HTTP-01, and only the app Ingress redirects to HTTPS. Steps: `docs/runbooks/prod-vm.md`.
 
-**CI locally** — `ci.js` runs exactly what `.github/workflows/ci.yml` runs per job (ADR-015): `node ci.js <service> [--docker]`, `node ci.js frontend [--docker]`, `node ci.js all`. Both produce coverage (JaCoCo in every service POM, Vitest V8 in the frontend). CI adds `--sonar`, which sends each target to its own SonarQube Cloud project (`<SONAR_ORGANIZATION>_<target>`) and fails on a failed quality gate. It is skipped without `SONAR_TOKEN`/`SONAR_ORGANIZATION` (ADR-023, `docs/runbooks/sonarqube-cloud.md`). Testcontainers should use the local Docker runtime rather than Testcontainers Cloud (free plan capped at 50 min/month).
+**CI locally** — `ci.js` runs exactly what `.github/workflows/ci.yml` runs per job (ADR-015): `node ci.js <service> [--docker]`, `node ci.js frontend [--docker]`, `node ci.js all`. Both produce coverage (JaCoCo in every service POM, Vitest V8 in the frontend). CI adds `--sonar`, which sends each target to its own SonarQube Cloud project (`<SONAR_ORGANIZATION>_<target>`) and fails on a failed quality gate. It is skipped without `SONAR_TOKEN`/`SONAR_ORGANIZATION` (ADR-023, `docs/runbooks/sonarqube-cloud.md`). CodeQL default setup and Dependabot (alerts, security updates, weekly grouped version updates in `.github/dependabot.yml`) run as GitHub repository features (ADR-024). Dependabot PRs get no secrets, so the Sonar step skips there. Testcontainers should use the local Docker runtime rather than Testcontainers Cloud (free plan capped at 50 min/month).
 
 Local service ports: frontend 8000 (compose; kind's Ingress uses the same port) · api-gateway 8080 · event-service 8081 · booking-service 8082 · payment-service 8083 · notification-service 8084 · waitlist-service 8085 · Kafdrop 9000 · Prometheus 9090 · Grafana 3000 (admin/admin).
 
