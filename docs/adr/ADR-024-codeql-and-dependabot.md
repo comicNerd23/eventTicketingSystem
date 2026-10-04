@@ -52,6 +52,11 @@ as follow-ups, both free for public repositories, and the user asked to turn the
     suffix (`3.9-eclipse-temurin-25`), and Dependabot proposed `3-eclipse-temurin-24`, a JDK
     downgrade that broke every service's Docker build. It is updated by hand together with the JDK.
     The runtime image `eclipse-temurin:25-jre` stays covered.
+  - **nginx stays on the stable line.** nginx's even minor versions are stable (1.30) and its odd
+    ones mainline (1.31). Dependabot only compares numbers, so it proposed mainline (PR #17, closed).
+    Minor and major updates of `nginxinc/nginx-unprivileged` are ignored. The tag `1.30-alpine`
+    floats, so stable patch releases come with every image build. The next stable line (1.32) is a
+    manual change.
 - **Temporary npm override: `piscina` → 5.3.2** in `frontend/package.json`, chosen with the user.
   `@angular/build` and `@angular-devkit/build-angular` 21.2.24 pin `piscina` at exactly 5.2.0,
   which has a critical advisory (GHSA-67c8-pqhq-4rmx, fixed in 5.3.2). No Angular 21 release ships

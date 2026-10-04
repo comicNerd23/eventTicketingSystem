@@ -61,6 +61,12 @@ updates:
     directories: ["/services/*", "/frontend"]
     ignore:
       - dependency-name: maven
+      # nginx: even minor versions are the stable line (1.30), odd ones mainline (1.31). Stay on
+      # stable: Dependabot only sees "1.31 > 1.30" and proposed mainline (PR #17). The tag
+      # 1.30-alpine floats, so stable patch releases arrive with every image build anyway; the
+      # next stable line (1.32) is a manual change.
+      - dependency-name: nginxinc/nginx-unprivileged
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
     schedule:
       interval: weekly
       day: monday

@@ -1102,6 +1102,14 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
 
 **Found along the way:** `npm audit` reports 7 high findings around `braces` (GHSA-vfj7-8cjw-p6xm, stack exhaustion; every `braces` version is affected, so no fix exists yet). They come only through `webpack-dev-server` in `@angular-devkit/build-angular`. That legacy package is still used by just two builders in `angular.json`: `dev-server` and `extract-i18n`. Both exist in `@angular/build`, which already does `application` and `unit-test`. Switching those two builders would drop `@angular-devkit/build-angular`, and with it the whole webpack chain. That's a candidate for the Angular 22 slice.
 
+**Verified:** [CI run 37235209334](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37235209334) (push of `4528ef6`) is green, the frontend's Sonar gate passed, and Dependabot marked the piscina alert as **fixed**. **Dependabot and code scanning now both have 0 open alerts.**
+
+**PR #17 closed:** it moved the frontend's runtime image `nginxinc/nginx-unprivileged` from 1.30 to 1.31.
+- nginx's even minor versions are the stable line, and its odd ones mainline. Dependabot only compared the numbers.
+- The PR's green CI only proved that the image builds. CI doesn't start the container, so it said nothing about the `/api` proxy or the WebSocket under 1.31.
+- The user chose to stay on stable. `dependabot.yml` now ignores minor and major updates of that image.
+- The tag `1.30-alpine` floats, so stable patch releases come with every image build. The next stable line (1.32) is a manual change.
+
 ---
 
 ## Outstanding housekeeping
