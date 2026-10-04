@@ -8,7 +8,7 @@ RUN npm ci --no-audit --no-fund
 COPY . .
 RUN npx ng build
 
-FROM nginxinc/nginx-unprivileged:1.30-alpine
+FROM nginxinc/nginx-unprivileged:1.31-alpine
 # The image's entrypoint runs envsubst over /etc/nginx/templates/*.template into conf.d,
 # replacing its default site. Only API_GATEWAY_URL is substituted, so nginx's own $variables stay.
 ENV NGINX_ENVSUBST_FILTER=^API_GATEWAY_URL$
