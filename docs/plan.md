@@ -987,6 +987,40 @@ No breaking change applies:
 
 **Not verified yet:** a real analysis and the quality gate. Both need the user's SonarQube Cloud organization, projects and token (runbook steps 1–4), then one manual CI run (step 5).
 
+### 2026-10-04 — SonarQube Cloud live, all seven quality gates green
+
+The user created the organization `comicnerd23`, the seven monorepo projects and the token, and stored `SONAR_TOKEN` and `SONAR_ORGANIZATION`. Pushed as `c4529ea`, `2cc7706` and `25e744d`.
+
+**What went wrong on the way, in order:**
+1. **The runbook's UI steps were out of date** (the user noticed). Tokens are now under **My account → Access Tokens → Personal Tokens** and have an expiration date. After the organization is created, an import offer for the repository appears, and taking it creates an extra single project. The user did end up with an 8th project, `comicNerd23_eventTicketingSystem`, and deleted it. The project-level **Administration** menu is hidden while a project only shows its setup screen. The runbook was rewritten against SonarQube Cloud's current docs.
+2. **[Run 37221049177](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37221049177) (push):** every test passed. Every Sonar step failed: the Maven scanner reported `invalid header value`, the npm scanner a 403.
+   - `2cc7706` makes `ci.js` strip whitespace and control characters from the token and log only its length and character set.
+   - [Run 37221325305](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37221325305) then showed `token length 129, contains other characters, removed 5 whitespace/control character(s)`. The secret held more than the token. A SonarQube Cloud token is 40 characters, letters, digits and underscores only.
+   - The user revoked that token and stored a new one. The runbook now pipes the value through `tr -d '\r\n '` and prints its length first.
+   - **My own mistake:** the patch that added the `tr -d` line wrote a real carriage return into the runbook. Fixed in `25e744d`.
+3. **[Run 37221988170](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37221988170) (manual, all targets):** the token was right (40 characters) and all seven analyses were uploaded, but **all seven quality gates failed**.
+   - The new-code definition "Number of days: 30", which I had recommended in the runbook, counted almost every line of this young codebase as new code.
+   - My assumption in ADR-023 that the first analysis wouldn't block was therefore wrong.
+   - SonarQube Cloud doesn't show gate details for public projects without logging in (`alert_status` is missing from the public measures API), so the failed conditions themselves weren't visible.
+4. **Fix, chosen by the user ("baseline = now"):** the new-code definition is now **Previous version** in all seven projects. The user set it with `api/settings/set`, and the public `api/settings/values` confirmed `previous_version`. The project versions never change, so the first analysis is the baseline.
+
+**Verified:** [run 37224299777](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37224299777) (manual, all targets) is **green in 4m01s**, and **all seven projects report `QUALITY GATE STATUS: PASSED`**. This confirms that "Previous version" uses the first analysis as the baseline when the version never changes, which SonarQube Cloud's docs leave open.
+
+**First measurements** (public measures API):
+
+| Project | Lines of code | Coverage | Bugs | Vulnerabilities | Code smells | Duplication |
+|---|---|---|---|---|---|---|
+| api-gateway | 121 | 5.9 % | 0 | 0 | 0 | 0 % |
+| event-service | 1,071 | 83.5 % | 0 | 0 | 0 | 2.4 % |
+| booking-service | 1,129 | 89.6 % | 0 | 1 | 0 | 0 % |
+| payment-service | 728 | 88.9 % | 0 | 0 | 0 | 0 % |
+| notification-service | 697 | 87.9 % | 0 | 0 | 0 | 0 % |
+| waitlist-service | 621 | 73.8 % | 0 | 1 | 0 | 0 % |
+| frontend | 800 | 82.1 % | 0 | 0 | 0 | 0 % |
+
+- **api-gateway's 5.9 % is real:** it has 11 lines of Java, and 8 of them are `RequiredConfigurationCheck`, which only loads in the prod profile. The routes are YAML.
+- **The two vulnerabilities** are both `javasecurity:S5145` (log injection, MINOR): request values are logged unsanitized in `BookingService.holdSeat()` (`BookingService.java:87`) and `WaitlistService.join()` (`WaitlistService.java:57`). They are existing code, so they don't fail the gate. They are open for a small follow-up.
+
 ---
 
 ## Outstanding housekeeping

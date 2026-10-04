@@ -87,8 +87,19 @@ Accepted by the user as proposed.
   then `sonar:sonar` with that service's project key. The frontend job runs `ng test` with
   coverage (`@vitest/coverage-v8`, LCOV), then `sonarqube-scan-action`. Only changed targets are
   analyzed, the same targets CI already tests.
-- **Fail the job on a failed quality gate.** The default "Sonar way" gate judges **new code**, so
-  existing issues don't block the first analysis; they show up on the dashboard instead.
+- **Fail the job on a failed quality gate.** The default "Sonar way" gate judges **new code**.
+  Existing issues show up on the dashboard instead of blocking, but only if the new-code definition
+  makes the existing code the baseline.
+- **New-code definition "Previous version" (baseline = now),** chosen with the user after the first
+  runs failed. The project versions never change, so the code at the first analysis is the
+  baseline and later changes are new code. A version bump at a release would move the baseline.
+  - **Correction:** this ADR first assumed the gate wouldn't block the first analysis, and the
+    runbook recommended "Number of days: 30". On this young codebase almost every line had changed
+    within 30 days, so all seven gates failed on the first analysis.
+  - SonarQube Cloud's docs don't say what "Previous version" does when the version never changes.
+    That the first analysis is the baseline was confirmed by
+    [run 37224299777](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37224299777):
+    all seven gates passed (`docs/plan.md`).
 - **Skip the analysis when `SONAR_TOKEN` is absent**, for example in pull requests from forks,
   which get no secrets. Tests still run.
 - **Local parity (ADR-015):** `ci.js` runs the same `mvn verify`/`ng test` with coverage, so the

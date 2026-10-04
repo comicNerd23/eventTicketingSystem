@@ -60,9 +60,17 @@ account ([Getting started with GitHub](https://docs.sonarsource.com/sonarqube-cl
 
    Alternatively, upload these seven entries (`projectKey`, `projectName`) in the **Import JSON**
    tab → **Review projects** → **Create projects**.
-5. Click **Set up monorepo**. On **Set up new code**, choose **Number of days: 30**, then
-   **Create projects**. "Previous version" would rely on a project version that CI doesn't set,
-   so all code since the first analysis would count as new.
+5. Click **Set up monorepo**. On **Set up new code**, choose **Previous version**, then **Create
+   projects**. The project versions never change (`0.0.1-SNAPSHOT` from the POMs, `0.0.0` from
+   `package.json`), so the existing code is the baseline and only later changes are judged by the
+   quality gate. **Don't use "Number of days"** on a young codebase: everything changed within that
+   window counts as new, so the gate judges almost all existing code, and the first runs fail
+   (this happened on 2026-10-04, see `docs/plan.md`). Bumping a version later moves the baseline to
+   that release.
+
+   To change it afterwards: each project's **Administration → New Code → Previous version →
+   Save**, or with a token through the Web API (`api/settings/set`, keys `sonar.leak.period` and
+   `sonar.leak.period.type`, both `previous_version`).
 6. Monorepo projects support only CI-based analysis, so automatic analysis stays off. If a project
    page asks for the analysis method, choose GitHub Actions but skip its YAML: `ci.yml` already
    has the step.
