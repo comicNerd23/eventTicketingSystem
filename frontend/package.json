@@ -33,7 +33,7 @@
     "@vitest/coverage-v8": "4.1.11",
     "jsdom": "^30.0.1",
     "tailwindcss": "^4.3.3",
-    "typescript": "~5.9.3",
+    "typescript": "~7.0.2",
     "vitest": "^4.0.8"
   }
 }
