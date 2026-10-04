@@ -25,7 +25,7 @@ go deeper as needed:
 | Where | What's there |
 |---|---|
 | [`docs/plan.md`](docs/plan.md) | The authoritative project history — every slice, every real bug found (and how it was fixed), current phase status. Read this to understand *why* the code looks the way it does, not just what it does. |
-| [`docs/adr/`](docs/adr/) | 22 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
+| [`docs/adr/`](docs/adr/) | 23 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
 | [`docs/diagrams/c4-diagram.md`](docs/diagrams/c4-diagram.md) | C4 Context + Container diagrams. |
 | [`specs/asyncapi/kafka-events.yaml`](specs/asyncapi/kafka-events.yaml) | The event catalog — every Kafka topic, who publishes it, who consumes it. More useful than any single service's code for understanding the whole system. |
 | [`specs/openapi/`](specs/openapi/) | The REST contract per service. |
@@ -99,13 +99,21 @@ uses, so a green local run means a green CI job — see
 [ADR-015](docs/adr/ADR-015-ci-pipeline-and-local-testing.md):
 
 ```bash
-node ci.js booking-service --docker   # mvn verify + docker build for one service
-node ci.js frontend                   # npm ci, ng test, ng build
+node ci.js booking-service --docker   # mvn verify (with JaCoCo coverage) + docker build for one service
+node ci.js frontend                   # npm ci, ng test (with coverage), ng build
 node ci.js all                        # every service + frontend
 ```
 
 For free, unlimited local runs, point Testcontainers Desktop at the local
 Docker runtime rather than Testcontainers Cloud.
+
+### Code quality (SonarQube Cloud)
+
+CI runs `ci.js <target> --sonar`. Each target is analyzed in SonarQube Cloud with its coverage,
+as one project per target, and a failed quality gate fails the job
+([ADR-023](docs/adr/ADR-023-code-quality-analysis.md)). Locally, the coverage reports are in
+`services/<name>/target/site/jacoco/index.html` and `frontend/coverage/frontend/lcov-report/index.html`.
+The one-time setup is in [`docs/runbooks/sonarqube-cloud.md`](docs/runbooks/sonarqube-cloud.md).
 
 ## Configuration and environments
 

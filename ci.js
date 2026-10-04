@@ -2,11 +2,17 @@
 // Single CI entry point, run identically on a developer machine and inside GitHub Actions
 // (.github/workflows/ci.yml calls exactly these targets) — see docs/adr/ADR-015.
 //
-//   node ci.js <target> [--docker]
+//   node ci.js <target> [--docker] [--sonar]
 //
 // Targets: one of the six service names, "frontend", "services" (all six), or "all".
-//   service  -> mvn -B -ntp verify   (+ docker build of its Dockerfile with --docker)
-//   frontend -> npm ci, ng test (single run), ng build (+ docker build of frontend/Dockerfile with --docker)
+//   service  -> mvn -B -ntp verify, incl. JaCoCo coverage (+ docker build of its Dockerfile with --docker)
+//   frontend -> npm ci, ng test (single run, with coverage), ng build (+ docker build of frontend/Dockerfile with --docker)
+//
+// --sonar sends the analysis, with the coverage just produced, to SonarQube Cloud (ADR-023) and
+// fails the target if its quality gate fails. It needs SONAR_TOKEN and SONAR_ORGANIZATION in the
+// environment and is skipped without them (e.g. pull requests from forks, which get no secrets).
+// CI passes it on every run; locally the coverage reports are enough
+// (services/<name>/target/site/jacoco/index.html, frontend/coverage/frontend/lcov-report/index.html).
 //
 // Five services run Testcontainers suites (Postgres/Kafka). Locally, Testcontainers may be
 // routed to Testcontainers Cloud (free plan capped at 50 min/month, see docs/plan.md) —
@@ -32,12 +38,19 @@ const SERVICES = [
 ];
 const USES_TESTCONTAINERS = SERVICES.filter((s) => s !== "api-gateway");
 
+// One SonarQube Cloud project per target, keyed <organization>_<target> (ADR-023). Scanner
+// versions are pinned like everything else in CI; the token is read from SONAR_TOKEN by the
+// scanners themselves and never appears on a command line.
+const SONAR_HOST = "https://sonarcloud.io";
+const SONAR_MAVEN_PLUGIN = "org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar";
+const SONAR_NPM_SCANNER = "@sonar/scan@5.0.1";
+
 function log(line = "") {
   console.log(line);
 }
 
 function usage() {
-  log("Usage: node ci.js <target> [--docker]");
+  log("Usage: node ci.js <target> [--docker] [--sonar]");
   log(`Targets: ${SERVICES.join(", ")}, frontend, services, all`);
   process.exit(2);
 }
@@ -76,21 +89,42 @@ function warnIfTestcontainersCloud() {
   }
 }
 
-function checkService(name, withDocker) {
+// Returns the scanner arguments, or null (with a note) when the analysis has to be skipped.
+function sonarArgs(target) {
+  const organization = process.env.SONAR_ORGANIZATION;
+  if (!process.env.SONAR_TOKEN || !organization) {
+    log("    SonarQube: skipped (SONAR_TOKEN or SONAR_ORGANIZATION not set)");
+    return null;
+  }
+  return [
+    `-Dsonar.host.url=${SONAR_HOST}`,
+    `-Dsonar.organization=${organization}`,
+    `-Dsonar.projectKey=${organization}_${target}`,
+    `-Dsonar.projectName=${target}`,
+    "-Dsonar.qualitygate.wait=true",
+  ];
+}
+
+function checkService(name, withDocker, withSonar) {
   const dir = path.join(ROOT, "services", name);
   if (!run("mvn", ["-B", "-ntp", "verify"], dir)) return false;
+  const sonar = withSonar && sonarArgs(name);
+  if (sonar && !run("mvn", ["-B", "-ntp", SONAR_MAVEN_PLUGIN, ...sonar], dir)) return false;
   if (withDocker) {
     return run("docker", ["build", "-t", `ticketing/${name}:ci`, "."], dir);
   }
   return true;
 }
 
-function checkFrontend(withDocker) {
+function checkFrontend(withDocker, withSonar) {
   const dir = path.join(ROOT, "frontend");
-  const ok =
+  let ok =
     run("npm", ["ci", "--no-audit", "--no-fund"], dir) &&
-    run("npx", ["ng", "test", "--watch=false"], dir) &&
+    run("npx", ["ng", "test", "--watch=false", "--coverage", "--coverage-reporters=lcov", "--coverage-reporters=text-summary"], dir) &&
     run("npx", ["ng", "build"], dir);
+  // Sources, tests and the LCOV path are in frontend/sonar-project.properties.
+  const sonar = ok && withSonar && sonarArgs("frontend");
+  if (sonar) ok = run("npx", ["--yes", SONAR_NPM_SCANNER, ...sonar], dir);
   if (ok && withDocker) {
     return run("docker", ["build", "-t", "ticketing/frontend:ci", "."], dir);
   }
@@ -100,6 +134,7 @@ function checkFrontend(withDocker) {
 function main() {
   const args = process.argv.slice(2);
   const withDocker = args.includes("--docker");
+  const withSonar = args.includes("--sonar");
   const target = args.find((a) => !a.startsWith("--"));
   if (!target) usage();
 
@@ -117,7 +152,7 @@ function main() {
     log(`  ${t}`);
     log("=========================================");
     const started = Date.now();
-    const ok = t === "frontend" ? checkFrontend(withDocker) : checkService(t, withDocker);
+    const ok = t === "frontend" ? checkFrontend(withDocker, withSonar) : checkService(t, withDocker, withSonar);
     const seconds = Math.round((Date.now() - started) / 1000);
     results.push({ target: t, ok, seconds });
     log(ok ? `  SUCCESS — ${t} (${seconds}s)` : `  FAILED — ${t} (${seconds}s)`);

@@ -964,6 +964,29 @@ No breaking change applies:
   - [Release images 37215744589](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37215744589) took 1m53s. All 14 native builds (`ubuntu-26.04` and `ubuntu-26.04-arm`) and 7 multi-arch merges passed, publishing `sha-1c46a8e`.
   - [Deploy prod 37215749525](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37215749525) redeployed `sha-8b82a63` in 58 s. The certificate was unchanged (still signed by `letsencrypt-prod`, trusted), and the smoke check passed.
 
+### 2026-10-04 — Code quality with SonarQube Cloud (ADR-023), built, waiting on the account
+
+**Decisions made with the user:**
+- **SonarQube Cloud on the Free plan.** The alternatives were a self-hosted Community Build on the prod VM (4–8 GB RAM next to the app, a public endpoint, and its own operation), the OSS plan, and CodeQL only.
+- **Seven projects bound to the repository as a monorepo.**
+- **A failed quality gate fails the CI job.**
+- **Upgrade path, agreed with the user:** if feature branches ever need checks, move to the OSS plan. It needs an OSI license file (the repository has none yet) and an application to Sonar.
+
+**What was added:**
+- JaCoCo 0.8.15 in all six service POMs.
+- `@vitest/coverage-v8` 4.1.11 in the frontend, plus `frontend/sonar-project.properties`.
+- `ci.js --sonar`, using the pinned Maven scanner and `@sonar/scan`, with the project key `<org>_<target>` and a wait for the quality gate.
+- `ci.yml` passes `--sonar`, `SONAR_TOKEN` and `SONAR_ORGANIZATION`, with `fetch-depth: 0`.
+- The runbook `docs/runbooks/sonarqube-cloud.md`, and updates to README and CLAUDE.md.
+
+**Verified locally:**
+- **Frontend:** `ng test --coverage` passed 34 tests and wrote `coverage/frontend/lcov.info`. Coverage: 88.9 % of lines, 82.6 % of branches.
+- **event-service:** JaCoCo 0.8.15 on Java 25 wrote `target/site/jacoco/jacoco.xml`.
+- **`node ci.js api-gateway --sonar` with no token:** the 7 tests passed, the JaCoCo report was written, and the run printed `SonarQube: skipped (SONAR_TOKEN or SONAR_ORGANIZATION not set)`.
+- **actionlint** reports no findings for `ci.yml`.
+
+**Not verified yet:** a real analysis and the quality gate. Both need the user's SonarQube Cloud organization, projects and token (runbook steps 1–4), then one manual CI run (step 5).
+
 ---
 
 ## Outstanding housekeeping

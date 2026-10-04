@@ -5,6 +5,11 @@
 # Kept inside the GitHub Free Actions quota (private repo, 2,000 min/month):
 # path filters so only changed targets run, cancellation of superseded runs,
 # Maven/npm caching, and no image push (docker build only verifies the Dockerfiles).
+#
+# Each target is also analyzed in SonarQube Cloud with its coverage (ADR-023): one project per
+# target, keyed <SONAR_ORGANIZATION>_<target>, and a failed quality gate fails the job. Secret
+# SONAR_TOKEN and variable SONAR_ORGANIZATION (Settings → Secrets and variables → Actions); without
+# them, e.g. in pull requests from forks, ci.js skips the analysis and only runs the tests.
 name: CI
 
 on:
@@ -86,8 +91,13 @@ jobs:
       fail-fast: false
       matrix:
         service: ${{ fromJSON(needs.changes.outputs.services) }}
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history, so SonarQube can tell new code from old (blame)
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -98,7 +108,7 @@ jobs:
         with:
           node-version: "24"
       # Testcontainers uses the runner's own Docker daemon here — no Testcontainers Cloud.
-      - run: node ci.js ${{ matrix.service }} --docker
+      - run: node ci.js ${{ matrix.service }} --docker --sonar
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
@@ -112,11 +122,16 @@ jobs:
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: node ci.js frontend --docker
+      - run: node ci.js frontend --docker --sonar

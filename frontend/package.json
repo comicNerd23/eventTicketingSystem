@@ -30,6 +30,7 @@
     "@angular/cli": "^21.2.22",
     "@angular/compiler-cli": "^21.2.22",
     "@tailwindcss/postcss": "^4.3.3",
+    "@vitest/coverage-v8": "4.1.11",
     "jsdom": "^30.0.1",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.9.3",
