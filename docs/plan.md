@@ -1033,6 +1033,11 @@ The user created the organization `comicnerd23`, the seven monorepo projects and
 
 **SonarQube Cloud's taint analysis** only runs in the CI analysis, so whether the findings close needs the push and its CI run.
 
+**Verified:** [run 37226319297](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37226319297) (push of `7cb653a`) is green.
+- Only booking-service and waitlist-service ran. Both quality gates passed.
+- Both S5145 issues are `CLOSED / FIXED` (18:57 UTC).
+- Both projects now report `vulnerabilities=0`, and coverage is unchanged (89.6 % and 73.8 %).
+
 **SonarQube token:** the user chose **no expiration**. Such a token still lapses after 60 days without use, which is now noted in the runbook.
 
 ---
