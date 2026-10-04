@@ -1,7 +1,7 @@
 # Static Angular build served by unprivileged nginx (ADR-019). One image for every environment:
 # the API is always reached same-origin under /api, and only the upstream URL nginx proxies to
 # is set at container start (API_GATEWAY_URL).
-FROM node:24-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
