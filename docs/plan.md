@@ -1088,7 +1088,8 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
   - **#11:** the Docker group. It "updated" `maven:3.9-eclipse-temurin-25` to `maven:3-eclipse-temurin-24`, a JDK downgrade, so all six service Docker builds failed. The tests themselves passed.
 - **`dependabot.yml` changes:** `typescript` joins both Angular groups, and the Docker updates ignore the `maven` image.
 - **Merged** after green CI: the security and minor updates #3, #4, #5, #6, #13, #14, #15 and #16.
-- **#12** (Node 24 → 26 in the frontend's build image, a major) is left for a separate decision.
+- **#12** (Node 24 → 26 in the frontend's build image, a major): merged too, at the user's decision, once CI was green.
+- **The two CodeQL alerts** (#1 `deploy-prod.js:291`, #2 `deploy-prod.js:234`) were dismissed as "won't fix" at the user's decision, with the ADR-022 reasoning as the comment. Code scanning now has 0 open alerts.
 
 **Next, a slice of its own:** Angular 21 → 22 with `ng update` (including TypeScript), when the user wants it.
 
