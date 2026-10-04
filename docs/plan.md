@@ -1065,6 +1065,18 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
 
 **Noted:** CodeQL default setup runs on GitHub's own `ubuntu-latest` runner, so its jobs still show the Ubuntu 26 migration notice. Default setup can't pin the runner; only advanced setup (a workflow file) can.
 
+**Dependabot's first findings:** 24 open alerts, all in `frontend/package-lock.json`: 1 critical, 7 high, 9 medium, 7 low.
+- Only `@angular/router` is a direct runtime dependency (GHSA-ff3f-86qr-9cv3, an SSR-only denial of service; this app doesn't use SSR). The rest are transitive dev dependencies of the Angular tooling: `piscina`, `undici`, `hono`, `brace-expansion`, `ip-address`, `fast-uri` and `http-cache-semantics`.
+- Dependabot opened security PRs #1–#5 right away. #2–#5 pass CI, and the user reviews them.
+- **PR #1 failed:** it bumped only `@angular/router` to 21.2.24, but Angular's packages pin each other exactly (`peer @angular/common@"21.2.24"`), so `npm ci` failed with `ERESOLVE`.
+
+**Fix:**
+- `.github/dependabot.yml` groups `@angular/*`, `@angular-devkit/*` and `@schematics/angular` for version updates and for security updates.
+- Angular was bumped as a group with `ng update @angular/core@21.2.25 @angular/cli@21.2.24`: the framework packages to 21.2.25, the tooling to 21.2.24.
+- **Found:** two plain `npm install`s, and one after editing `package.json`, failed with `ERESOLVE` against the installed tree. `ng update` cleans `node_modules` and resolves the whole group.
+- **Verified locally:** all `@angular/*` packages are on one version, with no invalid entries in `npm ls`. 34 tests pass (88.9 % line coverage), `ng build` succeeds, and `npm audit --omit=dev` finds **0 vulnerabilities**. 15 dev-only findings remain, partly covered by #2–#5.
+- PR #1 was closed in favour of this change.
+
 ---
 
 ## Outstanding housekeeping

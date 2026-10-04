@@ -39,6 +39,10 @@ as follow-ups, both free for public repositories, and the user asked to turn the
     six PRs. Major updates come one by one, because Spring Boot, Angular or Java majors need their
     own review.
   - **At most five open PRs** per ecosystem for Maven and npm (Dependabot's default).
+  - **Angular moves as one group,** for version and for security updates (`@angular/*`,
+    `@angular-devkit/*`, `@schematics/angular`). Its packages pin each other to the exact same
+    version, so the first security PR, which bumped only `@angular/router`, failed `npm ci` with
+    `ERESOLVE`. Angular is bumped with `ng update`, which updates the whole group.
 - **No auto-merge.** Every update PR runs CI with the full test suite and is merged by hand.
 
 How it fits with the existing checks:
