@@ -62,9 +62,10 @@ updates:
     ignore:
       - dependency-name: maven
       # nginx: even minor versions are the stable line (1.30), odd ones mainline (1.31). Stay on
-      # stable: Dependabot only sees "1.31 > 1.30" and proposed mainline (PR #17). The tag
-      # 1.30-alpine floats, so stable patch releases arrive with every image build anyway; the
-      # next stable line (1.32) is a manual change.
+      # stable: Dependabot only sees "1.31 > 1.30" and proposed mainline (PR #17). Stable patch
+      # releases (1.30.x) don't come through Dependabot: the tag 1.30-alpine floats, so a release
+      # build picks up the newest 1.30.x, and prod gets it with the next deploy (ADR-024). The next
+      # stable line (1.32) is a manual change.
       - dependency-name: nginxinc/nginx-unprivileged
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
     schedule:

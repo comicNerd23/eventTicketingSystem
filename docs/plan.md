@@ -1108,7 +1108,31 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
 - nginx's even minor versions are the stable line, and its odd ones mainline. Dependabot only compared the numbers.
 - The PR's green CI only proved that the image builds. CI doesn't start the container, so it said nothing about the `/api` proxy or the WebSocket under 1.31.
 - The user chose to stay on stable. `dependabot.yml` now ignores minor and major updates of that image.
-- The tag `1.30-alpine` floats, so stable patch releases come with every image build. The next stable line (1.32) is a manual change.
+- **Stable patch releases (1.30.x) don't come through Dependabot.** The tag `1.30-alpine` floats: the next run of **Release images** picks up the newest 1.30.x, and prod gets it only with the following **Deploy prod**. Local builds keep the cached base image unless pulled (`docker build --pull`). The same holds for `node:26-alpine`, `eclipse-temurin:25-jre` and `maven:3.9-eclipse-temurin-25`; ADR-024 has the details. The next stable line (1.32) is a manual change.
+- **Correction:** I first told the user that 1.30.x patches would still arrive automatically through Dependabot. They come through the floating tag, and only with a new release plus deploy.
+
+### Where things stand at the end of 2026-10-04 (resume here)
+
+**Live:**
+- **Prod** runs at `https://<IP with dashes>.sslip.io`, with a Let's Encrypt certificate valid until 2027-01-02 that cert-manager renews by itself.
+- **CI** runs on Ubuntu 26.04 with Node 24 actions. It analyzes every target in SonarQube Cloud (seven projects, Free plan, baseline = Previous version, all gates green), next to CodeQL and Dependabot.
+- **Open alerts:** 0 Dependabot, 0 code scanning. No Dependabot PRs are open.
+
+**Prod lags behind `master`.** Prod still runs release images `sha-8b82a63`. Since then, `master` has gained the log-injection fix (booking-service, waitlist-service), the Angular 21.2.25 bump, the merged dependency updates (Maven, npm, Node 26 in the frontend's build image) and the piscina override. Nothing urgent is in there for prod, but the next deploy needs **Release images** on the current `master` first, then **Deploy prod** with the new `sha-…` tag (runbook part C).
+
+**Next options, the user to pick:**
+1. **Angular 21 → 22**, a slice of its own:
+   - `ng update` for all `@angular/*` packages and TypeScript.
+   - Switch `dev-server` and `extract-i18n` to `@angular/build` and remove `@angular-devkit/build-angular`. That drops webpack-dev-server and the `braces` findings from `npm audit`.
+   - **Remove the `piscina` override** in `frontend/package.json` if Angular 22 ships a fixed piscina.
+2. **Secret scanning and push protection**, both repository settings, still off.
+3. **A license file** (the user's choice, e.g. MIT). It is also the prerequisite for Sonar's OSS plan (ADR-023).
+4. **(f) Rancher Manager**, optional, the last item of ADR-016.
+5. **A release and deploy** of the current `master` to prod (see above).
+
+**Keep in mind:**
+- **`SONAR_TOKEN` has no expiration**, but it lapses after 60 days without use (runbook `sonarqube-cloud.md`).
+- **Locally, Rancher Desktop may still be running** with a self-signed test deployment of the prod overlay. Delete its `ticketing` namespace before the next use. Docker Desktop and kind are stopped (machine constraint: never both).
 
 ---
 

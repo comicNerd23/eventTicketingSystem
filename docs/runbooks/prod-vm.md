@@ -275,6 +275,11 @@ Deploys only accept immutable tags: `sha-<7-char commit>` or `vX.Y.Z`. There is 
 - **A versioned release:** `git tag v1.0.0 && git push origin v1.0.0` builds `sha-<commit>` and
   `v1.0.0`.
 
+- **Security patches in base images** (nginx 1.30.x, Node, Temurin) need a new release, even
+  without a code change. The Dockerfiles use floating tags, which a release build resolves to the
+  newest patch. Dependabot doesn't open PRs for these. Run **Release images** for the current
+  `master`, then deploy the new tag (ADR-024).
+
 ### C2. Run the deploy
 
 ```bash

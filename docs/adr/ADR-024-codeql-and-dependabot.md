@@ -54,9 +54,22 @@ as follow-ups, both free for public repositories, and the user asked to turn the
     The runtime image `eclipse-temurin:25-jre` stays covered.
   - **nginx stays on the stable line.** nginx's even minor versions are stable (1.30) and its odd
     ones mainline (1.31). Dependabot only compares numbers, so it proposed mainline (PR #17, closed).
-    Minor and major updates of `nginxinc/nginx-unprivileged` are ignored. The tag `1.30-alpine`
-    floats, so stable patch releases come with every image build. The next stable line (1.32) is a
-    manual change.
+    Minor and major updates of `nginxinc/nginx-unprivileged` are ignored. Stable patch releases
+    (1.30.x) don't come through Dependabot; they arrive through the floating tag (next bullet).
+    The next stable line (1.32) is a manual change.
+- **Patch releases of base images come through floating tags, not Dependabot.** The Dockerfiles
+  use tags that the image publishers move in place: `nginx-unprivileged:1.30-alpine`,
+  `node:26-alpine`, `eclipse-temurin:25-jre` and `maven:3.9-eclipse-temurin-25`. Dependabot only
+  proposes a different tag (1.30 → 1.31). A new patch under the same tag is picked up like this:
+  - **Release images** (`release-images.yml`, GitHub's BuildKit) look up the tag's current digest
+    on every build. A new patch therefore misses the GHA layer cache and lands in the next
+    `sha-…` image.
+  - **Prod** only runs it after that new release is deployed (`Deploy prod`). A running cluster
+    never updates itself.
+  - **Local builds** (`docker build` in `ci.js`, `deploy-dev.js`) reuse the base image already on
+    the machine. `docker pull <image>` or `docker build --pull` gets the newest patch.
+  - So, after a security fix in a base image: run **Release images**, then **Deploy prod** with the
+    new tag.
 - **Temporary npm override: `piscina` → 5.3.2** in `frontend/package.json`, chosen with the user.
   `@angular/build` and `@angular-devkit/build-angular` 21.2.24 pin `piscina` at exactly 5.2.0,
   which has a critical advisory (GHSA-67c8-pqhq-4rmx, fixed in 5.3.2). No Angular 21 release ships
