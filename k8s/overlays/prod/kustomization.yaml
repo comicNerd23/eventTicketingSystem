@@ -1,14 +1,22 @@
-# Prod: the multi-arch release images from GHCR (ADR-021). Deploy only with deploy-prod.js.
+# Prod: the multi-arch release images from GHCR (ADR-021) behind HTTPS (ADR-022). Deploy only
+# with deploy-prod.js.
 #
-# Two things are deliberately missing here, because this repository is public:
+# Several values are deliberately missing here, because this repository is public:
 # - the image tag: "set-by-deploy" is replaced with the requested sha-<7> / vX.Y.Z tag when the
 #   overlay is rendered, so a deploy or rollback needs no commit;
+# - the host name and the certificate issuer: "set-by-deploy-host" comes from --base-url and
+#   "set-by-deploy-issuer" from --tls-issuer, so the VM's IP is not in the repository;
 # - the db-credentials Secret and the gateway-config ConfigMap: deploy-prod.js creates them from
 #   environment variables (GitHub Actions secrets in the deploy job).
+#
+# cert-manager itself is installed by deploy-prod.js (pinned version and checksum) before this
+# overlay is applied, because the ClusterIssuers need its CRDs and webhook.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
+  - cluster-issuers.yaml
+  - redirect-https.yaml
 images:
   - { name: ticketing/event-service, newName: ghcr.io/comicnerd23/ticketing/event-service, newTag: set-by-deploy }
   - { name: ticketing/booking-service, newName: ghcr.io/comicnerd23/ticketing/booking-service, newTag: set-by-deploy }
@@ -17,3 +25,22 @@ images:
   - { name: ticketing/waitlist-service, newName: ghcr.io/comicnerd23/ticketing/waitlist-service, newTag: set-by-deploy }
   - { name: ticketing/api-gateway, newName: ghcr.io/comicnerd23/ticketing/api-gateway, newTag: set-by-deploy }
   - { name: ticketing/frontend, newName: ghcr.io/comicnerd23/ticketing/frontend, newTag: set-by-deploy }
+patches:
+  # TLS for the one Ingress: cert-manager sees the annotation and the tls section, requests the
+  # certificate and stores it in the ticketing-tls Secret. A host rule is needed because a
+  # certificate is issued for a name.
+  - target: { kind: Ingress, name: ticketing }
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          cert-manager.io/cluster-issuer: set-by-deploy-issuer
+          traefik.ingress.kubernetes.io/router.middlewares: ticketing-redirect-https@kubernetescrd
+      - op: add
+        path: /spec/tls
+        value:
+          - hosts: [set-by-deploy-host]
+            secretName: ticketing-tls
+      - op: add
+        path: /spec/rules/0/host
+        value: set-by-deploy-host

@@ -62,13 +62,13 @@ async function smokeCheck(baseUrl, extraChecks = []) {
     { url: `${baseUrl}/api/events?size=1`, ok: (res) => res.ok },
     ...extraChecks,
   ];
-  for (const { url, ok } of checks) {
+  for (const { url, ok, init } of checks) {
     let passed = false;
     let last = "";
     // Traefik can need a few seconds to pick up new endpoints after a rollout.
     for (let attempt = 1; attempt <= 15 && !passed; attempt++) {
       try {
-        const res = await fetch(url);
+        const res = await fetch(url, init);
         const body = await res.text();
         passed = ok(res, body);
         last = `HTTP ${res.status}`;

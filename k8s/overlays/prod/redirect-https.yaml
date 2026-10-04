@@ -1,0 +1,13 @@
+# HTTP -> HTTPS for the app's Ingress only (ADR-022). Traefik-specific, which is fine in prod:
+# k3s ships Traefik. cert-manager's HTTP-01 solver gets its own Ingress with a longer path rule,
+# which Traefik prefers, so the challenge is still answered over plain HTTP. Let's Encrypt would
+# also follow a redirect to HTTPS, but doesn't have to.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-https
+  namespace: ticketing
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true

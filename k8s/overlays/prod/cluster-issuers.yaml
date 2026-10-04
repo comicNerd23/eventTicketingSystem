@@ -1,0 +1,44 @@
+# Certificate issuers for the Ingress (ADR-022). deploy-prod.js picks one with --tls-issuer and
+# writes it into the Ingress's cert-manager.io/cluster-issuer annotation.
+#
+# - letsencrypt-staging: untrusted certificates with generous rate limits; use it first after
+#   any change to the TLS setup, so mistakes don't use up the production limits.
+# - letsencrypt-prod:    the real, browser-trusted certificate.
+# - selfsigned:          for local runs on Rancher Desktop, which Let's Encrypt can't reach.
+#
+# HTTP-01 through Traefik (k3s's Ingress controller): port 80 must stay reachable. No email:
+# Let's Encrypt no longer sends expiry mails, and the account needs none.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-staging-account
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-prod-account
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned
+spec:
+  selfSigned: {}

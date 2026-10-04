@@ -2,6 +2,9 @@
 # that the "Release images" workflow built, e.g. sha-1234567 or v1.0.0. A rollback is the same
 # run with an older tag.
 #
+# HTTPS via cert-manager and Let's Encrypt (ADR-022). After any change to the TLS setup, deploy
+# once with tls_issuer=letsencrypt-staging, then again with letsencrypt-prod.
+#
 # The Kubernetes API is never exposed: the job opens an SSH tunnel to the VM and runs
 # deploy-prod.js through it, the same script used for local verification.
 #
@@ -12,7 +15,7 @@
 #            PROD_KUBECONFIG        /etc/rancher/k3s/k3s.yaml from the VM (server stays 127.0.0.1)
 #            DB_PASSWORD            Postgres password for every service
 #   vars     PROD_SSH_TARGET        e.g. ubuntu@203.0.113.10
-#            PROD_BASE_URL          e.g. http://203.0.113.10
+#            PROD_BASE_URL          e.g. https://203-0-113-10.sslip.io (a host name, HTTPS)
 #            GATEWAY_CORS_ALLOWED_ORIGINS   the same origin as PROD_BASE_URL
 name: Deploy prod
 
@@ -23,6 +26,12 @@ on:
         description: "Release tag to deploy (sha-1234567 or vX.Y.Z)"
         required: true
         type: string
+      tls_issuer:
+        description: "Certificate issuer (staging first after TLS changes)"
+        required: true
+        type: choice
+        options: [letsencrypt-prod, letsencrypt-staging]
+        default: letsencrypt-prod
 
 permissions:
   contents: read
@@ -33,7 +42,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: deploy ${{ inputs.tag }}
+    name: deploy ${{ inputs.tag }} (${{ inputs.tls_issuer }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
@@ -72,8 +81,9 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           GATEWAY_CORS_ALLOWED_ORIGINS: ${{ vars.GATEWAY_CORS_ALLOWED_ORIGINS }}
           TAG: ${{ inputs.tag }}
+          TLS_ISSUER: ${{ inputs.tls_issuer }}
           BASE_URL: ${{ vars.PROD_BASE_URL }}
-        run: node deploy-prod.js --context=prod --tag="$TAG" --base-url="$BASE_URL"
+        run: node deploy-prod.js --context=prod --tag="$TAG" --base-url="$BASE_URL" --tls-issuer="$TLS_ISSUER"
 
       - name: Close the tunnel
         if: always()

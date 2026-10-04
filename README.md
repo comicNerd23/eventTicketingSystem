@@ -25,7 +25,7 @@ go deeper as needed:
 | Where | What's there |
 |---|---|
 | [`docs/plan.md`](docs/plan.md) | The authoritative project history — every slice, every real bug found (and how it was fixed), current phase status. Read this to understand *why* the code looks the way it does, not just what it does. |
-| [`docs/adr/`](docs/adr/) | 21 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
+| [`docs/adr/`](docs/adr/) | 22 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
 | [`docs/diagrams/c4-diagram.md`](docs/diagrams/c4-diagram.md) | C4 Context + Container diagrams. |
 | [`specs/asyncapi/kafka-events.yaml`](specs/asyncapi/kafka-events.yaml) | The event catalog — every Kafka topic, who publishes it, who consumes it. More useful than any single service's code for understanding the whole system. |
 | [`specs/openapi/`](specs/openapi/) | The REST contract per service. |
@@ -167,8 +167,12 @@ See [ADR-018](docs/adr/ADR-018-kubernetes-base-manifests-and-ingress.md),
 environment and are never written to the repository (ADR-021):
 
 ```bash
-DB_PASSWORD=… GATEWAY_CORS_ALLOWED_ORIGINS=https://…   node deploy-prod.js --context=<kube-context> --tag=sha-1234567 --base-url=https://…
+DB_PASSWORD=… GATEWAY_CORS_ALLOWED_ORIGINS=https://…   node deploy-prod.js --context=<kube-context> --tag=sha-1234567 --base-url=https://203-0-113-10.sslip.io [--tls-issuer=letsencrypt-staging]
 ```
+
+Prod is served over HTTPS on an sslip.io name. The script installs a pinned, checksum-verified
+cert-manager, which gets a Let's Encrypt certificate (ADR-022). The full walk-through from an empty
+Oracle account to a rollback is in [`docs/runbooks/prod-vm.md`](docs/runbooks/prod-vm.md).
 
 ## Release images
 

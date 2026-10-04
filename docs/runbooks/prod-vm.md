@@ -1,4 +1,4 @@
-# Runbook: Production deployment on Oracle Always Free (ADR-021, slice e3)
+# Runbook: Production deployment on Oracle Always Free (ADR-021, ADR-022)
 
 This runbook covers everything from an empty Oracle account to a running production deployment:
 
@@ -8,6 +8,7 @@ This runbook covers everything from an empty Oracle account to a running product
 | [B](#part-b--github-environment-production-once) | GitHub environment `production` with secrets and variables | once (again when the VM changes) | you, with `gh` |
 | [C](#part-c--deploy-a-release-every-deploy) | Build images, deploy a tag, verify, roll back | every deploy | you start it, GitHub Actions runs it |
 | [D](#part-d--seed-demo-data-optional) | Seed the demo catalog | optional | you, over an SSH tunnel |
+| [E](#part-e--switch-an-http-deployment-to-https-once) | Switch a deployment from before ADR-022 to HTTPS | once | you |
 
 How a deploy reaches the VM:
 
@@ -15,8 +16,13 @@ How a deploy reaches the VM:
 GitHub Actions runner ──SSH (port 22)──► VM: tunnel to 127.0.0.1:6443 (k3s API, never public)
         │                                      │
         └── deploy-prod.js ── kubectl apply ───┘   images pulled from ghcr.io (public)
-Browser ──HTTP (port 80)──► Oracle security list ──► host firewall ──► Traefik ──► frontend / api-gateway
+Browser ──HTTPS (443)──► Oracle security list ──► host firewall ──► Traefik ──► frontend / api-gateway
+        ──HTTP (80)───► same path; Traefik redirects to HTTPS, except Let's Encrypt's challenge
 ```
+
+The app is served as `https://<IP with dashes>.sslip.io`, e.g. `https://203-0-113-10.sslip.io`.
+sslip.io resolves that name to the IP, and cert-manager gets a Let's Encrypt certificate for it
+(ADR-022).
 
 ## Before you start
 
@@ -35,6 +41,7 @@ Browser ──HTTP (port 80)──► Oracle security list ──► host firewa
 
   ```bash
   IP=<public IP of the VM>
+  HOST="$(echo "$IP" | tr . -).sslip.io"
   ```
 
 ---
@@ -87,19 +94,22 @@ without a public IP:
 An ephemeral IP is free and stays the same until the instance is deleted or the IP is removed.
 The subnet must still be public (a route to an Internet Gateway); a public IP alone is not enough.
 
-### A5. Open port 80 (Oracle console)
+### A5. Open ports 80 and 443 (Oracle console)
 
 **Networking → Virtual cloud networks → (your VCN) → Security Lists → Default Security List →
-Add Ingress Rules**:
+Add Ingress Rules**, one rule per port:
 
 | Field | Value |
 |---|---|
 | Source CIDR | `0.0.0.0/0` |
 | IP Protocol | TCP |
-| Destination Port Range | `80` |
+| Destination Port Range | `80`, then a second rule with `443` |
 
-Port 22 is open by default. Port 443 is added together with the TLS slice. **Never open 6443**:
-the Kubernetes API is only reached through the SSH tunnel.
+Port 443 serves the app. Port 80 must stay open too: Let's Encrypt checks the certificate request
+over plain HTTP (HTTP-01), and everything else on port 80 is redirected to HTTPS.
+
+Port 22 is open by default. **Never open 6443**: the Kubernetes API is only reached through the
+SSH tunnel.
 
 Note the instance's **public IP** from its details page and set `IP=...` in your shell (see
 "Before you start").
@@ -221,9 +231,12 @@ when its volume is first created; see [Notes](#notes) for changing it later.
 
 ```bash
 gh variable set PROD_SSH_TARGET              --env production --body "ubuntu@$IP"
-gh variable set PROD_BASE_URL                --env production --body "http://$IP"
-gh variable set GATEWAY_CORS_ALLOWED_ORIGINS --env production --body "http://$IP"
+gh variable set PROD_BASE_URL                --env production --body "https://$HOST"
+gh variable set GATEWAY_CORS_ALLOWED_ORIGINS --env production --body "https://$HOST"
 ```
+
+Both must be `https://` on the sslip.io name: `deploy-prod.js` refuses `http://` and bare IPs,
+because the certificate is issued for the name.
 
 ### B7. Check
 
@@ -271,29 +284,43 @@ gh run watch "$(gh run list --workflow deploy-prod.yml --limit 1 --json database
 
 Or in the browser: **Actions → Deploy prod → Run workflow**, enter the tag.
 
+`tls_issuer` defaults to `letsencrypt-prod`. **After any change to the TLS setup** (first
+deploy, new host name, issuer changes), deploy once with `-f tls_issuer=letsencrypt-staging`
+first. Staging certificates aren't trusted by browsers, but mistakes there don't use up Let's
+Encrypt's production rate limits. Then deploy again with `letsencrypt-prod`.
+
 The job:
 
 1. writes the deploy key, the pinned host key and the kubeconfig (context renamed to `prod`),
 2. opens the SSH tunnel and prints the node (`kubectl --context prod get nodes`),
 3. runs `deploy-prod.js --context=prod`, which
    - checks that the tag exists in GHCR for every image,
+   - installs cert-manager (pinned version; the manifest's checksum must match),
    - writes the Secret and ConfigMap from `DB_PASSWORD` and `GATEWAY_CORS_ALLOWED_ORIGINS`,
-   - applies `k8s/overlays/prod` with the tag and waits for every rollout,
-   - smoke-tests `PROD_BASE_URL`, including that `/api/actuator/health` returns 404,
+   - applies `k8s/overlays/prod` with the tag, host and issuer and waits for every rollout,
+   - waits until the certificate is issued by the chosen issuer and prints its issuer and expiry,
+   - smoke-tests `PROD_BASE_URL` over HTTPS, the HTTP → HTTPS redirect, and that
+     `/api/actuator/health` returns 404,
 4. closes the tunnel, also on failure.
 
-The first deploy takes longer: the VM pulls every image and Postgres initialises its volume.
+The first deploy takes longer: the VM pulls every image and Postgres initialises its volume. The
+first certificate takes up to a minute or two.
 
 ### C3. Verify
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" http://$IP/                     # 200, the frontend
-curl -s http://$IP/api/events | head -c 300; echo                        # JSON event page
-curl -s -o /dev/null -w "%{http_code}\n" http://$IP/api/actuator/health  # 404, closed on purpose
-ssh -i ~/.ssh/ticketing-deploy ubuntu@$IP sudo kubectl -n ticketing get pods
+curl -s -o /dev/null -w "%{http_code}\n" https://$HOST/                     # 200, the frontend
+curl -s https://$HOST/api/events | head -c 300; echo                        # JSON event page
+curl -s -o /dev/null -w "%{http_code}\n" https://$HOST/api/actuator/health  # 404, closed on purpose
+curl -sI http://$HOST/ | grep -i '^location'                                # https://$HOST/
+ssh -i ~/.ssh/ticketing-deploy ubuntu@$IP sudo kubectl -n ticketing get pods,certificate
 ```
 
-Then open `http://<IP>` in the browser. The catalog is empty until Part D.
+With a staging certificate, add `-k` to the HTTPS `curl` calls. Then open `https://<HOST>` in the
+browser: the lock icon shows a Let's Encrypt certificate. The catalog is empty until Part D.
+
+cert-manager renews the certificate on its own about 30 days before it expires (Let's Encrypt
+issues 90-day certificates).
 
 ### C4. Roll back
 
@@ -316,6 +343,7 @@ carry over to another window. Verify the context in step 3 before step 4.
 # 0. The VM's public IP; the second line stops here if it is empty
 IP=<public IP of the VM>
 : "${IP:?IP is empty}"
+HOST="$(echo "$IP" | tr . -).sslip.io"
 
 # 1. A local copy of the kubeconfig, pointing at the tunnel port
 ssh -i ~/.ssh/ticketing-deploy ubuntu@$IP sudo cat /etc/rancher/k3s/k3s.yaml > ~/.kube/ticketing-prod.yaml
@@ -329,7 +357,7 @@ ssh -i ~/.ssh/ticketing-deploy -fN -L 16443:127.0.0.1:6443 ubuntu@$IP
 kubectl get nodes                          # expect: ticketing-prod
 
 # 4. Seed
-node seed-events.js --k8s --base-url=http://$IP
+node seed-events.js --k8s --base-url=https://$HOST
 
 # 5. Clean up
 unset KUBECONFIG
@@ -341,6 +369,44 @@ Step 5 stops only the tunnel, not other SSH sessions. Git Bash has no `pkill`, a
 
 Delete `~/.kube/ticketing-prod.yaml` afterwards if you don't need it again; it is the admin
 credential.
+
+---
+
+## Part E — Switch an HTTP deployment to HTTPS (once)
+
+For a VM set up before ADR-022, which serves `http://$IP`. A fresh setup already covers this in
+A5 and B6.
+
+1. **Open port 443** in the security list: the second rule from A5. The host firewall already
+   allows it, because `setup-k3s.sh` opened 80 and 443 from the start.
+2. **Check that the name resolves and port 443 is reachable**:
+
+   ```bash
+   nslookup "$HOST"                                    # Address: $IP
+   curl -sk -o /dev/null -w "%{http_code}\n" https://$IP/   # any status code, not a timeout
+   ```
+
+   Expect **200**: the HTTP-only Ingress has no host rule, and Traefik serves it on 443 too, with
+   its self-signed `TRAEFIK DEFAULT CERT` (hence `-k`). On an empty cluster it would be 404. A
+   timeout means the security list is still blocking 443.
+
+3. **Switch the variables** to the HTTPS name (B6):
+
+   ```bash
+   gh variable set PROD_BASE_URL                --env production --body "https://$HOST"
+   gh variable set GATEWAY_CORS_ALLOWED_ORIGINS --env production --body "https://$HOST"
+   ```
+
+4. **Deploy with staging**, then **with prod** (C2). A release tag built before ADR-022 works:
+   TLS is only manifests and the deploy script, not images.
+
+   ```bash
+   gh workflow run deploy-prod.yml -f tag=sha-1234567 -f tls_issuer=letsencrypt-staging
+   # wait for it to finish green, then:
+   gh workflow run deploy-prod.yml -f tag=sha-1234567 -f tls_issuer=letsencrypt-prod
+   ```
+
+5. **Verify** (C3). `http://$IP` stops working, because the Ingress now only answers for `$HOST`.
 
 ---
 
@@ -357,6 +423,12 @@ credential.
 | Deploy job fails at "Tunnel" with `Host key verification failed` | The VM was recreated or its IP changed. Redo B3, and B6 for a new IP. |
 | Deploy job fails at `kubectl ... get nodes` | Wrong `PROD_KUBECONFIG`, or its `server` was changed. Redo B4 unchanged. |
 | Deploy fails with "tag not found" | The tag was never built. Run **Release images** first (C1). |
+| Deploy fails with "--base-url must be https://…" or "needs a host name" | `PROD_BASE_URL` is still `http://$IP`. Set it to `https://$HOST` (B6). |
+| Deploy fails at "Waiting for certificate", challenge `pending` or `connection refused` | Let's Encrypt can't reach port 80 on `$HOST`. Check the security list (A5) and `curl http://$HOST/.well-known/acme-challenge/x` from outside: a 404 from Traefik is fine, a timeout is not. The deploy log prints cert-manager's challenges. |
+| Deploy fails with `rateLimited` in the challenge or order | Too many failed attempts or certificates. Use `tls_issuer=letsencrypt-staging` until it works, then wait (the error says until when). As a last resort, use `nip.io` instead of `sslip.io` in `$HOST`. |
+| `curl https://$HOST` times out, `http://` works | Port 443 isn't open in the security list (A5). |
+| Browser warns about the certificate after a staging deploy | Expected: staging certificates aren't trusted. Deploy again with `letsencrypt-prod`. |
+| Deploy fails with "cert-manager manifest checksum mismatch" | The downloaded manifest isn't the pinned one. Don't override it; check `CERT_MANAGER_VERSION` and `CERT_MANAGER_SHA256` in `deploy-prod.js`. |
 | Pods crash with authentication errors after `DB_PASSWORD` changed | Postgres kept the old password; see Notes. |
 
 ## Notes
@@ -364,7 +436,8 @@ credential.
 - **Changing `DB_PASSWORD`:** Postgres sets it only when its volume is first created. To change it,
   run `ALTER USER ... PASSWORD ...` inside the Postgres pod **and** update the secret (B5), then
   deploy again.
-- **New VM or new IP:** redo A6–A8, then B3, B4 and B6.
+- **New VM or new IP:** redo A6–A8, then B3, B4 and B6. A new IP means a new `$HOST`, so the
+  next deploy needs a new certificate: run it with staging first (C2).
 - **Rotating the deploy key:** create a new key (A2), add its public half to
   `~/.ssh/authorized_keys` on the VM, redo B2, then remove the old line.
 - **Not covered yet:** TLS on 443 with a domain (next slice), and Rancher Manager (optional).

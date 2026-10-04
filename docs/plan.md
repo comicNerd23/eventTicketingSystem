@@ -853,6 +853,57 @@ The user created the Oracle account, the VM, the deploy key and the `production`
 
 **Next up:** TLS as its own slice. It needs a free domain choice first.
 
+### 2026-10-04 — TLS for prod (ADR-022), built and verified locally
+
+Documented in ADR-022, which also has a section on what an enterprise setup would add.
+
+**Decisions made with the user:**
+- **An sslip.io name** (`https://<IP with dashes>.sslip.io`). The alternatives were an IP certificate (6-day lifetime), DuckDNS (needs an account and a token) and an own domain (costs money).
+- **cert-manager v1.21.2.** The alternative was Traefik's built-in ACME client.
+- **HTTP-01**, with staging first after any TLS change.
+
+**What was added:**
+- **`deploy-prod.js`:**
+  - It installs cert-manager from the pinned official manifest, checked against its sha256.
+  - It sets host and issuer from `--base-url` and `--tls-issuer` (`letsencrypt-prod`, `letsencrypt-staging` or `selfsigned`). It refuses `http://` and bare IPs.
+  - It waits until the certificate comes from the chosen issuer, using `Ready` plus the Secret's `issuer-name` annotation, and prints the served certificate.
+  - The smoke check runs over HTTPS and checks the HTTP → HTTPS redirect.
+- **`k8s/overlays/prod`:** three ClusterIssuers, the Ingress host and `tls:` section, and a Traefik redirect Middleware on the app's Ingress only.
+- **Deploy workflow:** a `tls_issuer` choice input.
+- **Runbook:** port 443, HTTPS variables, staging first, and a new Part E that switches the running HTTP deployment.
+
+**Verified offline:**
+- The guards refuse no arguments, `http://`, a bare IP, a path in the URL, an unknown issuer and an unreachable context.
+- The overlay renders with no placeholders left.
+- actionlint reports no findings.
+- Switching off certificate verification at runtime works for `fetch`, tested against `self-signed.badssl.com`.
+
+**Verified on Rancher Desktop** (k3s 1.36.4, Traefik on localhost:80/443), with `sha-8b82a63`, `--base-url=https://localhost` and `--tls-issuer=selfsigned`, after deleting the old `ticketing` namespace:
+- **First deploy:** 197 s, exit 0.
+  - The manifest checksum matched, and cert-manager rolled out.
+  - The overlay applied on the first attempt, so the retry for the webhook never ran.
+  - The certificate became `Ready`, signed by `selfsigned`.
+  - The smoke check passed: `/` 200, `/api/events` 200, `/api/actuator/health` 404, `http://localhost/api/events` → 301 to the HTTPS URL. Traefik answers HEAD with 308 and GET with 301, and the check accepts both.
+- **Repeat deploy:** 11 s, and the certificate was not reissued (the Secret's resourceVersion was unchanged).
+- **cert-manager's idle usage:** controller 38 Mi, cainjector 27 Mi, webhook 19 Mi, 1m CPU each.
+- **Negative test with `letsencrypt-staging`:** Let's Encrypt can't issue for `localhost`, so the deploy has to fail. The old certificate kept being served throughout, so there was no outage.
+
+**Found while testing:**
+- **A failed issuance waited the full 300 s and showed no reason.**
+  - Let's Encrypt rejected the order before any challenge existed, so `describe challenges` printed nothing. cert-manager only retries after a backoff of about an hour.
+  - The wait now stops on `Issuing=False/Failed` after a 30 s grace period.
+  - It prints the reasons from the certificate's conditions and the orders and challenges, e.g. `rejectedIdentifier … Domain name needs at least one dot`.
+  - The failing run now ends after 42 s instead of 311 s.
+- **The printed certificate line was empty.** cert-manager puts the name only in the SAN, not the CN, and a self-signed certificate has an empty issuer. The line now shows the SAN names.
+- **My assumption in the first ADR-022 draft was wrong.** I had written that after an issuer switch the old certificate "stays Ready". In fact cert-manager sets `Ready=False/IncorrectIssuer` as soon as its controller reacts. A probe showed that an issuer switch starts a new issuance at once, even right after a failure. So moving from staging to prod isn't blocked by the backoff.
+- **The runbook expected the wrong status code.** It said `https://<IP>` returns 404 before the switch. The user got 200: the HTTP-only Ingress has no host rule, and Traefik serves it on 443 too, with its self-signed `TRAEFIK DEFAULT CERT`. Corrected.
+
+**Not verified yet:**
+- A real Let's Encrypt issuance, including HTTP-01 through Traefik next to the redirect.
+- The `letsencrypt-prod` trust check.
+
+Both need the VM (runbook Part E). Port 443 is already open in the security list (the user's step).
+
 ---
 
 ## Outstanding housekeeping
