@@ -812,6 +812,32 @@ These need the user's Oracle account and VM (runbook steps 1, 2 and 4); I can't 
 
 **Next up:** the user follows `docs/runbooks/prod-vm.md` steps 1–4, then the first `Deploy prod` run verifies e3. After that, TLS, then (f) Rancher Manager, which is optional.
 
+### 2026-10-02 — slice (e3) verified: first prod deploy on the Oracle VM
+
+The user created the Oracle account, the VM, the deploy key and the `production` environment by following the runbook (parts A and B). The runbook was rewritten along the way (`8990f74`) into one walk-through from the account to the rollback.
+
+**The VM:** Ubuntu 24.04.5 aarch64 on an A1 instance with 2 OCPU and 11.6 GB, node `ticketing-prod`, k3s `v1.36.4+k3s1` installed by `setup-k3s.sh`. Port 80 is open in the security list and the host firewall, and 6443 is closed from outside.
+
+**First deploy:** [run 37028620560](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37028620560), tag `sha-8b82a63`. Those are the newest release images, because nothing image-relevant changed after `8b82a63`.
+- **Green.** The job took 2m56s, `deploy-prod.js` 165 s.
+- The SSH tunnel from the hosted runner, the pinned host key and the renamed `prod` context all worked on the first try.
+- All 11 pods are `Running` with 0 restarts.
+- The smoke check passed: `/` 200, `/api/events` 200, **`/api/actuator/health` 404**. I repeated it from outside myself.
+- Load on the VM after the deploy: 3.4 GB RAM, about 11% CPU.
+
+**Found while setting up:**
+- **`gh secret set DB_PASSWORD --env production` set nothing in Git Bash.** `gh` doesn't see an interactive terminal there, so it doesn't prompt, and B7 listed only 3 of 4 secrets. The runbook's B5 now pipes the value from `read -rs`, and the troubleshooting table has a row for it.
+
+**Run annotations, not acted on yet:**
+- `actions/setup-node@v4` targets Node 20, which is deprecated, and the runner forces it to Node 24.
+- `ubuntu-latest` moves to Ubuntu 26 from 2026-10-19.
+
+**Not verified yet:**
+- Seeding prod with runbook part D, which has never run against the real VM.
+- The booking, payment and WebSocket flow on prod.
+
+**Next up:** seed prod (part D), then TLS as its own slice. That slice needs a free domain choice first.
+
 ---
 
 ## Outstanding housekeeping

@@ -161,6 +161,13 @@ What was built:
 `DB_PASSWORD` later updates the Secret, but not the database user. A password rotation needs an
 `ALTER USER` in Postgres as well.
 
+**Verified on 2026-10-02:** the first deploy to the real A1 VM (Ubuntu 24.04, k3s
+`v1.36.4+k3s1`) ran green with tag `sha-8b82a63`
+([run 37028620560](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37028620560)).
+The tunnel from the hosted runner worked, and the API port stayed closed from outside. All 11 pods
+came up without restarts, and the smoke check returned 200 for `/` and `/api/events` and 404 for
+`/api/actuator/health`. Details are in `docs/plan.md`.
+
 ## Consequences
 
 **Positive**

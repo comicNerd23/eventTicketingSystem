@@ -203,11 +203,16 @@ Generate it, and **store it in your password manager first**:
 openssl rand -hex 24
 ```
 
-Then set it. `gh` prompts for the value; paste it and press Enter:
+Then set it. `read -s` takes the value without echoing it; paste it and press Enter:
 
 ```bash
-gh secret set DB_PASSWORD --env production
+read -rs -p "DB password: " P; echo
+printf '%s' "$P" | gh secret set DB_PASSWORD --env production
+unset P
 ```
+
+Don't rely on `gh secret set DB_PASSWORD --env production` prompting by itself: in Git Bash `gh`
+often doesn't see an interactive terminal, so no prompt appears and no secret is set.
 
 Hex avoids characters that would need escaping in URLs or YAML. Postgres only takes the password
 when its volume is first created; see [Notes](#notes) for changing it later.
@@ -337,6 +342,7 @@ credential.
 |---|---|
 | "Assign a public IPv4 address" is greyed out | The subnet is private. Select a public subnet, or add an ephemeral IP afterwards (A4). |
 | "Out of capacity" when creating the instance | No free A1 capacity right now. Try another availability domain or later. |
+| B7 lists only 3 secrets, `DB_PASSWORD` missing | `gh` didn't prompt in Git Bash. Set it with the `read -rs` pipe from B5. |
 | `ssh: Permission denied (publickey)` | `-i ~/.ssh/ticketing-deploy` missing, or the instance was created with a different key: add `ticketing-deploy.pub` to `~/.ssh/authorized_keys` on the VM. |
 | `curl http://$IP/` times out | Port 80 blocked: check the ingress rule (A5), then re-run `setup-k3s.sh` (A7). |
 | Deploy job fails at "Tunnel" with `Host key verification failed` | The VM was recreated or its IP changed. Redo B3, and B6 for a new IP. |
