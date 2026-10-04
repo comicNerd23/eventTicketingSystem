@@ -1093,6 +1093,15 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
 
 **Next, a slice of its own:** Angular 21 → 22 with `ng update` (including TypeScript), when the user wants it.
 
+**Verified after all merges:** [CI run 37230284838](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37230284838) (manual, all targets, on the combined state) is green in 5m00s, and all seven Sonar gates passed. The push runs of the individual merges had cancelled each other, so the combined state needed this run. Dependabot went from 24 open alerts to **1**, and code scanning has 0.
+
+**The last alert:** `piscina` 5.2.0 is critical (GHSA-67c8-pqhq-4rmx, fixed in 5.3.2).
+- `@angular/build` and `@angular-devkit/build-angular` 21.2.24 pin it exactly, and no Angular 21 release has the fix, so Dependabot can't fix it.
+- **The user chose option 3:** an npm `overrides` entry `"piscina": "5.3.2"` now, removed again with Angular 22.
+- **Verified locally:** `npm ls` shows piscina 5.3.2 (`overridden`) with no invalid entries. 34 tests pass (88.9 %), and `ng build` succeeds.
+
+**Found along the way:** `npm audit` reports 7 high findings around `braces` (GHSA-vfj7-8cjw-p6xm, stack exhaustion; every `braces` version is affected, so no fix exists yet). They come only through `webpack-dev-server` in `@angular-devkit/build-angular`. That legacy package is still used by just two builders in `angular.json`: `dev-server` and `extract-i18n`. Both exist in `@angular/build`, which already does `application` and `unit-test`. Switching those two builders would drop `@angular-devkit/build-angular`, and with it the whole webpack chain. That's a candidate for the Angular 22 slice.
+
 ---
 
 ## Outstanding housekeeping
