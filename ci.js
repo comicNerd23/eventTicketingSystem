@@ -89,9 +89,22 @@ function warnIfTestcontainersCloud() {
   }
 }
 
+// A token pasted on Windows easily carries a trailing \r or newline, which the Java scanner
+// rejects as an invalid header value. Strip it once; the scanners inherit the cleaned variable.
+// Only its shape is logged, never the value.
+function cleanSonarToken() {
+  const raw = process.env.SONAR_TOKEN;
+  if (!raw) return;
+  const cleaned = raw.replace(/[\s\x00-\x1f\x7f]/g, "");
+  const shape = /^[A-Za-z0-9_]+$/.test(cleaned) ? "letters, digits and underscores only" : "contains other characters";
+  log(`    SonarQube: token length ${cleaned.length}, ${shape}${cleaned !== raw ? `, removed ${raw.length - cleaned.length} whitespace/control character(s)` : ""}`);
+  process.env.SONAR_TOKEN = cleaned;
+}
+
 // Returns the scanner arguments, or null (with a note) when the analysis has to be skipped.
 function sonarArgs(target) {
   const organization = process.env.SONAR_ORGANIZATION;
+  cleanSonarToken();
   if (!process.env.SONAR_TOKEN || !organization) {
     log("    SonarQube: skipped (SONAR_TOKEN or SONAR_ORGANIZATION not set)");
     return null;
