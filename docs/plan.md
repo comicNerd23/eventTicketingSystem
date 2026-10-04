@@ -956,6 +956,12 @@ No breaking change applies:
 
 **Found:** actionlint 1.7.12, the latest release (2026-03-30), reports both labels as unknown. Its support for them is still in open PRs (rhysd/actionlint#743). `.github/actionlint.yaml` declares them until a release includes them, and actionlint then reports no findings.
 
+**Verified:** [CI run 37214924053](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37214924053) (push of `907f344` + `1c46a8e`) is **green in 2m22s on Ubuntu 26.04 with Docker 29**.
+- Because `ci.yml` changed, every target ran: all six services and the frontend (8 Vitest files).
+- Every Testcontainers suite passed. Testcontainers 1.21.4 works with Docker 29.
+- **No annotations are left:** neither the Node 20 warning nor the Ubuntu migration notice.
+- `release-images.yml` and `deploy-prod.yml` run only when started by hand, so they haven't run on the new runners yet.
+
 ---
 
 ## Outstanding housekeeping
