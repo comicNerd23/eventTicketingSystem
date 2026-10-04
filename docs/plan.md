@@ -843,9 +843,15 @@ The user created the Oracle account, the VM, the deploy key and the `production`
   - Part D now stops only the tunnel process through PowerShell.
   - **My own mistake while testing it:** the first version also matched its own PowerShell command line and killed itself. It now filters on `ssh.exe`.
 
-**Not verified yet:** the booking, payment and WebSocket flow on prod.
+**Booking flow checked on 2026-10-04**, by the user in the browser on the public IP. Two windows (one normal, one private) had the same event open:
+- **Hold:** clicking a free seat in window A opened the booking page with a countdown. Window B showed the seat as held without a reload, so the WebSocket works through nginx, the gateway and booking-service.
+- **Confirm:** the booking reached `CONFIRMED`, so the payment saga runs over Kafka with the stub's self-delivered webhook. Window B showed the seat as booked.
+- **Cancel:** the booking became `CANCELLED`, and the seat was free again in window B.
+- Everything ran without errors.
 
-**Next up:** a booking and WebSocket check on prod, then TLS as its own slice. TLS needs a free domain choice first.
+**Slice (e3) is done.**
+
+**Next up:** TLS as its own slice. It needs a free domain choice first.
 
 ---
 

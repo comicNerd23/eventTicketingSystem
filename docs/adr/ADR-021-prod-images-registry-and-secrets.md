@@ -166,7 +166,9 @@ What was built:
 ([run 37028620560](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37028620560)).
 The tunnel from the hosted runner worked, and the API port stayed closed from outside. All 11 pods
 came up without restarts, and the smoke check returned 200 for `/` and `/api/events` and 404 for
-`/api/actuator/health`. Details are in `docs/plan.md`.
+`/api/actuator/health`. On 2026-10-04 prod was seeded through runbook part D, and a hold →
+confirm → cancel run in the browser worked, including the live seat updates over the WebSocket.
+Details are in `docs/plan.md`.
 
 ## Consequences
 
