@@ -1021,6 +1021,20 @@ The user created the organization `comicnerd23`, the seven monorepo projects and
 - **api-gateway's 5.9 % is real:** it has 11 lines of Java, and 8 of them are `RequiredConfigurationCheck`, which only loads in the prod profile. The routes are YAML.
 - **The two vulnerabilities** are both `javasecurity:S5145` (log injection, MINOR): request values are logged unsanitized in `BookingService.holdSeat()` (`BookingService.java:87`) and `WaitlistService.join()` (`WaitlistService.java:57`). They are existing code, so they don't fail the gate. They are open for a small follow-up.
 
+### 2026-10-04 — the two log-injection findings (S5145)
+
+**Practically not exploitable:** every logged value is a `java.util.UUID`. `HoldSeatRequest.seatId`, the waitlist request's `eventId` and the `userId` header are parsed into UUIDs during request binding. A UUID string holds only hex digits and dashes, so no line break can reach the log. Sonar's taint analysis flags them because the values come from the request.
+
+**Fix:** both log statements now log the values from the entity returned by `repository.save()`, instead of the request parameters. The values are identical, but the request data no longer flows straight into the log.
+- `BookingService.holdSeat()`: `booking.getSeatId()` instead of `request.getSeatId()`.
+- `WaitlistService.join()`: `entry.getUserId()` and `entry.getEventId()` instead of the method parameters.
+
+**Verified locally:** both services compile, and their `*ServiceTest` suites pass.
+
+**SonarQube Cloud's taint analysis** only runs in the CI analysis, so whether the findings close needs the push and its CI run.
+
+**SonarQube token:** the user chose **no expiration**. Such a token still lapses after 60 days without use, which is now noted in the runbook.
+
 ---
 
 ## Outstanding housekeeping

@@ -84,7 +84,7 @@ public class BookingService {
 
         try {
             booking = bookingRepository.save(booking);
-            log.info("Seat hold created: booking={} seat={}", booking.getId(), request.getSeatId());
+            log.info("Seat hold created: booking={} seat={}", booking.getId(), booking.getSeatId());
             seatStatusWebSocketHandler.broadcast(booking.getEventId(), booking.getSeatId(), "HELD");
             return BookingResponse.from(booking);
         } catch (Exception e) {

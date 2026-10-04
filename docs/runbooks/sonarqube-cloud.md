@@ -107,6 +107,12 @@ gh secret list; gh variable list    # SONAR_TOKEN and SONAR_ORGANIZATION are lis
 **Token expiry:** CI's Sonar step fails once the token expires, so note the date. A token without
 an expiration date expires after 60 days without use. Rotate it as described in Notes.
 
+The current `SONAR_TOKEN` (set 2026-10-04) has **no expiration date**. It is used only when CI
+analyzes a target: on a push that changes a service, the frontend, `ci.js` or `ci.yml`, or on a
+manual run. **If none of that happens for 60 days, the token lapses.** Before picking the project up
+again after a long break, run `gh workflow run ci.yml` once (that also uses the token), or expect to
+generate a new one.
+
 ## 5. First analysis
 
 A manual CI run analyzes every target, not just the changed ones:

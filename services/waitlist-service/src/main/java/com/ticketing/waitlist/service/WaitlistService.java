@@ -54,7 +54,7 @@ public class WaitlistService {
         entry.setStatus(WaitlistStatus.WAITING);
         entry = waitlistEntryRepository.save(entry);
 
-        log.info("User {} joined waitlist for event {}: entry={}", userId, eventId, entry.getId());
+        log.info("User {} joined waitlist for event {}: entry={}", entry.getUserId(), entry.getEventId(), entry.getId());
         return toResponse(entry);
     }
 
