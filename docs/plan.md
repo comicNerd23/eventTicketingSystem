@@ -904,6 +904,36 @@ Documented in ADR-022, which also has a section on what an enterprise setup woul
 
 Both need the VM (runbook Part E). Port 443 is already open in the security list (the user's step).
 
+### 2026-10-04 — Actions on Node 24, runners pinned to Ubuntu 26.04
+
+This fixes the two run annotations.
+
+**"Node.js 20 is deprecated":** every action now uses its current major version, which runs on `node24` (checked in each action's `action.yml`):
+
+| Action | Before | After |
+|---|---|---|
+| `actions/checkout` (ci.yml) | v4 | v7 |
+| `dorny/paths-filter` | v3 | v4 |
+| `actions/setup-java` | v4 | v6 |
+| `actions/setup-node` (ci.yml, deploy-prod.yml) | v4 | v7 |
+| `actions/upload-artifact` | v4 | v7 |
+
+No breaking change applies:
+- setup-node v5 turns on caching by itself only when `package.json` has a `packageManager` field. Ours has none, and the frontend job already sets `cache: npm`.
+- upload-artifact v7 switched to ESM internally, and its direct upload is opt-in.
+
+**"ubuntu-latest will migrate to Ubuntu 26":** the rollout runs from 2026-10-19 to 2026-11-19 ([runner-images#14748](https://github.com/actions/runner-images/issues/14748)).
+- Every job is now pinned instead: `ubuntu-latest` → `ubuntu-26.04`, and the arm64 release builds `ubuntu-24.04-arm` → `ubuntu-26.04-arm`.
+- That way the switch happens at a time we choose, and we can check it.
+- The relevant change for us is **Docker 29.4 instead of 28.0** on the runner. Testcontainers 1.21.4's release notes say it supports recent Docker Engine changes.
+
+**Found:** actionlint 1.7.12, the latest release (2026-03-30), reports both labels as unknown. Its support for them is still in open PRs (rhysd/actionlint#743). `.github/actionlint.yaml` declares them until a release includes them, and actionlint then reports no findings.
+
+---
+
+## Outstanding housekeeping
+
+- Testcontainers Cloud free plan is capped at 50 min/month — reserve integration test runs for genuine breakage or final pre-commit verification, not speculative re-runs. Since ADR-015, CI-like local runs (`node ci.js …`) should use Testcontainers Desktop's local Docker runtime instead, which is free and unlimited; GitHub Actions never uses Testcontainers Cloud.
 ---
 
 ## Outstanding housekeeping

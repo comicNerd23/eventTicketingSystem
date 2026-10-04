@@ -77,6 +77,7 @@ Facts checked on 2026-10-01:
 - **`.github/workflows/release-images.yml`** runs manually (`workflow_dispatch`) or on a `v*`
   tag push. It does not run on every push.
   - A `build` matrix covers 7 targets × {amd64 on `ubuntu-latest`, arm64 on `ubuntu-24.04-arm`}.
+    Since 2026-10-04 both are pinned to `ubuntu-26.04` / `ubuntu-26.04-arm` (`docs/plan.md`).
     Each job pushes `ghcr.io/comicnerd23/ticketing/<target>:sha-<7>-<arch>`, with
     `provenance: false` and a GitHub Actions layer cache per target and architecture.
   - A `merge` job per target runs `docker buildx imagetools create` to join both into

@@ -1,0 +1,7 @@
+# actionlint 1.7.12 (2026-03-30) doesn't know the Ubuntu 26.04 runner labels yet, although GitHub
+# offers them (actions/runner-images README). Declared here so actionlint doesn't report them as
+# unknown; remove once a release includes them (rhysd/actionlint#743).
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
+    - ubuntu-26.04-arm

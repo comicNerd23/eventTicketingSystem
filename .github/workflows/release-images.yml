@@ -1,7 +1,7 @@
 # Builds the seven runtime images for amd64 and arm64 and publishes them to GHCR (ADR-021).
 # The prod VM is arm64 (ADR-016), and amd64 images keep the same tags usable on dev machines.
 #
-# Each architecture builds natively on its own runner (ubuntu-24.04-arm for arm64), so Maven never
+# Each architecture builds natively on its own runner (ubuntu-26.04-arm for arm64), so Maven never
 # runs under QEMU emulation. A merge job then joins the two per-arch tags into one multi-arch tag.
 #
 # Tags are immutable: sha-<7-char commit> always, plus the Git tag (v1.2.3) on a tag push. There
@@ -36,9 +36,9 @@ jobs:
         arch: [amd64, arm64]
         include:
           - arch: amd64
-            runner: ubuntu-latest
+            runner: ubuntu-26.04
           - arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-26.04-arm
     steps:
       - uses: actions/checkout@v7
       - name: Image name and context
@@ -79,7 +79,7 @@ jobs:
   merge:
     name: ${{ matrix.target }} (multi-arch)
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     strategy:
       fail-fast: false
