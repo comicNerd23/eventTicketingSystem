@@ -1132,7 +1132,10 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
 
 **Keep in mind:**
 - **`SONAR_TOKEN` has no expiration**, but it lapses after 60 days without use (runbook `sonarqube-cloud.md`).
-- **Locally, Rancher Desktop may still be running** with a self-signed test deployment of the prod overlay. Delete its `ticketing` namespace before the next use. Docker Desktop and kind are stopped (machine constraint: never both).
+- **Locally, cleaned up on 2026-10-05:**
+  - In Rancher Desktop, the test deployment (`ticketing` namespace), the ClusterIssuers and cert-manager are deleted. cert-manager went through its pinned manifest, so no CRDs or webhooks remain, and no volumes are left.
+  - Rancher Desktop is shut down. Docker Desktop and kind are stopped too (machine constraint: never both).
+  - The local prod kubeconfig `~/.kube/ticketing-prod.yaml` is deleted. Runbook part D, step 1 fetches it again when needed.
 
 ---
 
