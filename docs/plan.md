@@ -1111,7 +1111,7 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
 - **Stable patch releases (1.30.x) don't come through Dependabot.** The tag `1.30-alpine` floats: the next run of **Release images** picks up the newest 1.30.x, and prod gets it only with the following **Deploy prod**. Local builds keep the cached base image unless pulled (`docker build --pull`). The same holds for `node:26-alpine`, `eclipse-temurin:25-jre` and `maven:3.9-eclipse-temurin-25`; ADR-024 has the details. The next stable line (1.32) is a manual change.
 - **Correction:** I first told the user that 1.30.x patches would still arrive automatically through Dependabot. They come through the floating tag, and only with a new release plus deploy.
 
-### 2026-10-05 — Angular 21 → 22 (ADR-025), done locally
+### 2026-10-05 — Angular 21 → 22 (ADR-025), done
 
 **What changed:**
 - `ng update @angular/core@22 @angular/cli@22`: Angular **22.2.1**, TypeScript **6.0.3**.
@@ -1135,6 +1135,8 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
 - **The full compose stack plus `ng serve` ran the machine out of memory.** Docker stopped answering, and Claude Code stopped the background `ng serve`. After a Docker Desktop restart, **kind's `ticketing-control-plane` container was running again**: it restarts with Docker Desktop. It was stopped with `docker stop ticketing-control-plane`. With the reduced stack, the containers used about 1.5 GB.
 - After the restart, the six app containers came back by themselves (`restart: unless-stopped`) but the infra containers didn't, as CLAUDE.md describes.
 
+**Pushed as `874c777`:** [CI run 37288101747](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37288101747) is green, the frontend's Sonar gate passed, and Dependabot and code scanning both still have 0 open alerts. [Release images run 37290822544](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37290822544) published `sha-874c777` for all seven images (amd64 + arm64). **Deployed to prod:** Claude Code's auto mode blocked starting `deploy-prod.yml`, so the user started it. [Deploy prod run 37291705915](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37291705915) is green with `sha-874c777`. The checks from runbook part C3 pass: frontend 200, `/api/events` 200, `/api/actuator/health` 404, and HTTP redirects to HTTPS. Prod serves `main-RHE3Z5L7.js`, the same bundle hash as the local Angular 22 build.
+
 ### Where things stand on 2026-10-05 (resume here)
 
 **Live:**
@@ -1142,13 +1144,12 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
 - **CI** runs on Ubuntu 26.04 with Node 24 actions. It analyzes every target in SonarQube Cloud (seven projects, Free plan, baseline = Previous version, all gates green), next to CodeQL and Dependabot.
 - **Open alerts:** 0 Dependabot, 0 code scanning. No Dependabot PRs are open.
 
-**Prod lags behind `master`.** Prod still runs release images `sha-8b82a63`. Since then, `master` has gained the log-injection fix (booking-service, waitlist-service), the merged dependency updates (Maven, npm, Node 26 in the frontend's build image) and Angular 22 (ADR-025). The next deploy needs **Release images** on the current `master` first, then **Deploy prod** with the new `sha-…` tag (runbook part C).
+**Prod runs `master`:** release images `sha-874c777`, deployed on 2026-10-05, with the log-injection fix, the dependency updates and Angular 22 (ADR-025).
 
 **Next options, the user to pick:**
-1. **A release and deploy** of the current `master` to prod (see above), now including Angular 22.
-2. **Secret scanning and push protection**, both repository settings, still off.
-3. **A license file** (the user's choice, e.g. MIT). It is also the prerequisite for Sonar's OSS plan (ADR-023).
-4. **(f) Rancher Manager**, optional, the last item of ADR-016.
+1. **Secret scanning and push protection**, both repository settings, still off.
+2. **A license file** (the user's choice, e.g. MIT). It is also the prerequisite for Sonar's OSS plan (ADR-023).
+3. **(f) Rancher Manager**, optional, the last item of ADR-016.
 
 **Keep in mind:**
 - **`SONAR_TOKEN` has no expiration**, but it lapses after 60 days without use (runbook `sonarqube-cloud.md`).
