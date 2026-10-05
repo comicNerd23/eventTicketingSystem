@@ -1111,31 +1111,53 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
 - **Stable patch releases (1.30.x) don't come through Dependabot.** The tag `1.30-alpine` floats: the next run of **Release images** picks up the newest 1.30.x, and prod gets it only with the following **Deploy prod**. Local builds keep the cached base image unless pulled (`docker build --pull`). The same holds for `node:26-alpine`, `eclipse-temurin:25-jre` and `maven:3.9-eclipse-temurin-25`; ADR-024 has the details. The next stable line (1.32) is a manual change.
 - **Correction:** I first told the user that 1.30.x patches would still arrive automatically through Dependabot. They come through the floating tag, and only with a new release plus deploy.
 
-### Where things stand at the end of 2026-10-04 (resume here)
+### 2026-10-05 — Angular 21 → 22 (ADR-025), done locally
+
+**What changed:**
+- `ng update @angular/core@22 @angular/cli@22`: Angular **22.2.1**, TypeScript **6.0.3**.
+- **The user chose to keep Angular 22's new defaults.** `ng update` had added three compatibility shims, and all three were removed again:
+  - `ChangeDetectionStrategy.Eager` in all five components. **OnPush is now the default.** The app is zoneless and keeps its component state in signals, so nothing relied on the old behavior.
+  - `withXhr()` in `provideHttpClient()` (app and two specs). `HttpClient` now uses Fetch; the app has no progress events.
+  - The suppression of `nullishCoalescingNotNullable` and `optionalChainNotNullable` in both tsconfigs. Without it, the build reports no warning.
+- `angular.json`: `dev-server` and `extract-i18n` now run on `@angular/build`. `@angular-devkit/build-angular` is removed, and with it webpack and `webpack-dev-server`.
+- **The `piscina` override is removed.** `@angular/build` 22.2.1 depends on `piscina` 5.3.2 itself.
+
+**Verified locally:**
+- `npm audit`: **0 vulnerabilities** (the `braces` findings are gone). `npm ls piscina`: 5.3.2 under `@angular/build`.
+- `ng build` without warnings, `ng test` 34/34, `node ci.js frontend` PASS.
+- In Chrome, on `ng serve` (new builder) against a reduced compose stack (Postgres, Redis, Kafka, event-service, booking-service, api-gateway):
+  - Event list with the 13 seeded events.
+  - Seat map: a section toggle updates `aria-expanded`, and a hold made from outside the page turns a seat from available to held through the WebSocket, without a reload (650/0 → 649/1).
+  - Clicking a seat holds it and opens the booking page, whose countdown keeps ticking (9:51 → 9:47).
+  - No console errors.
+
+**Found along the way:**
+- **The full compose stack plus `ng serve` ran the machine out of memory.** Docker stopped answering, and Claude Code stopped the background `ng serve`. After a Docker Desktop restart, **kind's `ticketing-control-plane` container was running again**: it restarts with Docker Desktop. It was stopped with `docker stop ticketing-control-plane`. With the reduced stack, the containers used about 1.5 GB.
+- After the restart, the six app containers came back by themselves (`restart: unless-stopped`) but the infra containers didn't, as CLAUDE.md describes.
+
+### Where things stand on 2026-10-05 (resume here)
 
 **Live:**
 - **Prod** runs at `https://<IP with dashes>.sslip.io`, with a Let's Encrypt certificate valid until 2027-01-02 that cert-manager renews by itself.
 - **CI** runs on Ubuntu 26.04 with Node 24 actions. It analyzes every target in SonarQube Cloud (seven projects, Free plan, baseline = Previous version, all gates green), next to CodeQL and Dependabot.
 - **Open alerts:** 0 Dependabot, 0 code scanning. No Dependabot PRs are open.
 
-**Prod lags behind `master`.** Prod still runs release images `sha-8b82a63`. Since then, `master` has gained the log-injection fix (booking-service, waitlist-service), the Angular 21.2.25 bump, the merged dependency updates (Maven, npm, Node 26 in the frontend's build image) and the piscina override. Nothing urgent is in there for prod, but the next deploy needs **Release images** on the current `master` first, then **Deploy prod** with the new `sha-…` tag (runbook part C).
+**Prod lags behind `master`.** Prod still runs release images `sha-8b82a63`. Since then, `master` has gained the log-injection fix (booking-service, waitlist-service), the merged dependency updates (Maven, npm, Node 26 in the frontend's build image) and Angular 22 (ADR-025). The next deploy needs **Release images** on the current `master` first, then **Deploy prod** with the new `sha-…` tag (runbook part C).
 
 **Next options, the user to pick:**
-1. **Angular 21 → 22**, a slice of its own:
-   - `ng update` for all `@angular/*` packages and TypeScript.
-   - Switch `dev-server` and `extract-i18n` to `@angular/build` and remove `@angular-devkit/build-angular`. That drops webpack-dev-server and the `braces` findings from `npm audit`.
-   - **Remove the `piscina` override** in `frontend/package.json` if Angular 22 ships a fixed piscina.
+1. **A release and deploy** of the current `master` to prod (see above), now including Angular 22.
 2. **Secret scanning and push protection**, both repository settings, still off.
 3. **A license file** (the user's choice, e.g. MIT). It is also the prerequisite for Sonar's OSS plan (ADR-023).
 4. **(f) Rancher Manager**, optional, the last item of ADR-016.
-5. **A release and deploy** of the current `master` to prod (see above).
 
 **Keep in mind:**
 - **`SONAR_TOKEN` has no expiration**, but it lapses after 60 days without use (runbook `sonarqube-cloud.md`).
 - **Locally, cleaned up on 2026-10-05:**
   - In Rancher Desktop, the test deployment (`ticketing` namespace), the ClusterIssuers and cert-manager are deleted. cert-manager went through its pinned manifest, so no CRDs or webhooks remain, and no volumes are left.
-  - Rancher Desktop is shut down. Docker Desktop and kind are stopped too (machine constraint: never both).
+  - Rancher Desktop is shut down (machine constraint: never together with Docker Desktop).
   - The local prod kubeconfig `~/.kube/ticketing-prod.yaml` is deleted. Runbook part D, step 1 fetches it again when needed.
+- **Docker Desktop restarts kind's control plane.** Check `docker ps` for `ticketing-control-plane` after an engine restart and stop it, unless kind is wanted.
+- **The full compose stack doesn't fit next to `ng serve` on this machine.** For frontend checks, run the reduced stack above.
 
 ---
 

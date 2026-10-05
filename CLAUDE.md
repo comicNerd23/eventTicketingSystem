@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A portfolio project: an event ticketing system (concerts, sports, theatre, comedy) built as **six independently deployable Spring Boot microservices** behind an Angular frontend, built with Spec-Driven Development to demonstrate Kafka/event-driven architecture, microservices, and full-stack skills.
 
-**Stack:** Spring Boot 4.1.0 · Java 25 · Spring Cloud Gateway · Apache Kafka · PostgreSQL (per service) · Redis · Angular 21 (zoneless, Vitest) · Tailwind CSS 4 · Docker/K8s · Stripe sandbox (stubbed) · Testcontainers 1.21.4
+**Stack:** Spring Boot 4.1.0 · Java 25 · Spring Cloud Gateway · Apache Kafka · PostgreSQL (per service) · Redis · Angular 22 (zoneless, OnPush by default, Vitest) · Tailwind CSS 4 · Docker/K8s · Stripe sandbox (stubbed) · Testcontainers 1.21.4
 
 The repo documents itself more than this file can — always check these before assuming behavior:
 
 - `docs/plan.md` — authoritative, dated project history: every slice, every real bug found and how it was fixed, current phase status. Read this to understand *why* the code looks the way it does.
-- `docs/adr/` — 24 Architecture Decision Records with the reasoning behind every non-obvious choice.
+- `docs/adr/` — 25 Architecture Decision Records with the reasoning behind every non-obvious choice.
 - `docs/diagrams/c4-diagram.md` — C4 Context + Container diagrams (Mermaid).
 - `specs/asyncapi/kafka-events.yaml` — the event catalog: every Kafka topic, publisher, consumer.
 - `specs/openapi/` — REST contract per service.
@@ -78,7 +78,7 @@ Local service ports: frontend 8000 (compose; kind's Ingress uses the same port) 
 
 **UUIDv4 primary keys everywhere** (ADR-006), including cross-service foreign-key fields (`Booking.eventId`, `Booking.userId`, etc.) — there is no auto-increment ID anywhere in the domain model.
 
-**Frontend**: Angular 21, zoneless change detection, Vitest for tests, Tailwind 4 for styling. `frontend/src/app/` is organized by feature (`events/`, `bookings/`), talking to the backend only same-origin under `/api` (ADR-019): in the container nginx proxies it to `api-gateway` (prefix stripped), under `ng serve` `proxy.conf.json` does. That includes the seat-status WebSocket, which the gateway routes on to `booking-service` (ADR-009). The `/api` prefix exists because the SPA routes `/events/:id` and `/bookings/:id` collide with the gateway's own paths.
+**Frontend**: Angular 22, zoneless change detection with OnPush as the default (ADR-025), Vitest for tests, Tailwind 4 for styling. `frontend/src/app/` is organized by feature (`events/`, `bookings/`), talking to the backend only same-origin under `/api` (ADR-019): in the container nginx proxies it to `api-gateway` (prefix stripped), under `ng serve` `proxy.conf.json` does. That includes the seat-status WebSocket, which the gateway routes on to `booking-service` (ADR-009). The `/api` prefix exists because the SPA routes `/events/:id` and `/bookings/:id` collide with the gateway's own paths.
 
 Before "fixing" something that looks wrong, check `docs/adr/` — several apparently odd choices (stubbed Stripe gateway, simplified webhook payload instead of real signature verification, denormalized `venueName`/`city` on `Event`, seat-level fields still client-supplied in bookings) are deliberate, scoped-down decisions documented with their deferral conditions, not bugs.
 

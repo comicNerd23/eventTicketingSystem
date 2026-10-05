@@ -75,7 +75,7 @@ as follow-ups, both free for public repositories, and the user asked to turn the
   which has a critical advisory (GHSA-67c8-pqhq-4rmx, fixed in 5.3.2). No Angular 21 release ships
   the fix, so Dependabot can't open a PR for it. The risk is low, because piscina only runs inside
   the build tool. **Remove the override with the Angular 22 upgrade**, if that version ships a
-  fixed piscina.
+  fixed piscina. **Removed on 2026-10-05** with Angular 22.2.1, which ships piscina 5.3.2 (ADR-025).
 - **No auto-merge.** Every update PR runs CI with the full test suite and is merged by hand.
 
 How it fits with the existing checks:

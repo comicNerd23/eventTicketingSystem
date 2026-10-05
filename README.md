@@ -7,7 +7,7 @@ demonstrate Kafka/event-driven architecture, microservices, and
 full-stack skills.
 
 **Stack:** Spring Boot 4.1.0 · Java 25 · Spring Cloud Gateway · Apache
-Kafka · PostgreSQL (per service) · Redis · Angular 20 · Tailwind CSS 4 ·
+Kafka · PostgreSQL (per service) · Redis · Angular 22 · Tailwind CSS 4 ·
 Docker/K8s · Stripe sandbox (stubbed) · Testcontainers
 
 ## Architecture, in one picture
@@ -25,7 +25,7 @@ go deeper as needed:
 | Where | What's there |
 |---|---|
 | [`docs/plan.md`](docs/plan.md) | The authoritative project history — every slice, every real bug found (and how it was fixed), current phase status. Read this to understand *why* the code looks the way it does, not just what it does. |
-| [`docs/adr/`](docs/adr/) | 24 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
+| [`docs/adr/`](docs/adr/) | 25 Architecture Decision Records — the reasoning behind every non-obvious choice (choreography vs. orchestration, database-per-service, Redis seat holds, Kafka vs. RabbitMQ, plain WebSocket vs. STOMP, etc.). |
 | [`docs/diagrams/c4-diagram.md`](docs/diagrams/c4-diagram.md) | C4 Context + Container diagrams. |
 | [`specs/asyncapi/kafka-events.yaml`](specs/asyncapi/kafka-events.yaml) | The event catalog — every Kafka topic, who publishes it, who consumes it. More useful than any single service's code for understanding the whole system. |
 | [`specs/openapi/`](specs/openapi/) | The REST contract per service. |
@@ -201,7 +201,7 @@ gh workflow run release-images.yml           # or: git tag v1.0.0 && git push or
 
 ```
 services/           6 independently deployable Spring Boot services
-frontend/           Angular 21 SPA + Dockerfile (nginx, ADR-019)
+frontend/           Angular 22 SPA + Dockerfile (nginx, ADR-019)
 docker/             docker-compose stack + Grafana/Prometheus provisioning
 specs/              OpenAPI (REST) + AsyncAPI (Kafka) contracts, written before the code
 docs/
