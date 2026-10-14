@@ -98,3 +98,109 @@ We mitigate the observability downside by:
 | Payment failed | booking-service releases Redis lock, publishes `seat-released` |
 | Booking cancelled post-payment | booking-service publishes `booking-cancelled`; payment-service issues Stripe refund |
 | Seat hold expired (TTL) | booking-service publishes `seat-hold-expired`; waitlist-service promotes next user |
+
+---
+
+---
+
+# ADR-002: Saga-Muster – Choreografie statt Orchestrierung
+
+**Status:** Akzeptiert  
+**Datum:** 2024-01-01  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+Der zentrale Buchungsablauf erstreckt sich über mehrere Services: booking-service,
+payment-service, notification-service und waitlist-service. Wenn ein Nutzer eine Buchung
+bestätigt, muss eine verteilte Transaktion Folgendes leisten:
+
+1. Zahlung anstoßen (payment-service)
+2. Bei Erfolg: Buchung bestätigen und Ticket ausstellen (booking-service → notification-service)
+3. Bei Fehlschlag: Sitzreservierung freigeben und die Warteliste benachrichtigen
+   (booking-service → waitlist-service)
+
+Das ist ein klassischer Anwendungsfall für das Saga-Muster. Zwei Umsetzungsstile wurden bewertet:
+
+### Option A: Saga-Orchestrierung
+Ein eigener „Booking-Saga-Orchestrator“-Service enthält die vollständige Ablaufdefinition.
+Er sendet explizite Befehle an jeden beteiligten Service und wartet auf Antworten.
+
+**Vorteile:**
+- Der gesamte Ablauf ist an einer Stelle sichtbar (im Orchestrator).
+- Bedingte Verzweigungen sind leicht ergänzbar (z. B. andere Abläufe für VIP-Tickets).
+- Retry- und Timeout-Logik lässt sich zentral einfacher umsetzen.
+
+**Nachteile:**
+- Der Orchestrator wird zum Single Point of Failure.
+- Er ist eng an jeden beteiligten Service gekoppelt – das Hinzufügen oder Entfernen eines
+  Schritts erfordert eine Änderung am Orchestrator.
+- Ein zusätzlicher Service muss gebaut, deployt und betrieben werden.
+
+### Option B: Saga-Choreografie
+Services reagieren auf Events, die sie betreffen, und veröffentlichen daraufhin neue Events.
+Es gibt keinen zentralen Koordinator. Jeder Service kennt seine eigene Rolle im Ablauf.
+
+**Vorteile:**
+- Kein Single Point of Failure.
+- Jeder Service ist unabhängig deploybar – ein neuer Teilnehmer abonniert einfach das
+  passende Topic, ohne etwas anderes zu ändern.
+- Passt natürlich zur bereits vorhandenen ereignisgesteuerten Architektur.
+
+**Nachteile:**
+- Der Gesamtablauf ist implizit – er muss aus der AsyncAPI-Spezifikation und dem
+  verteilten Tracing rekonstruiert werden.
+- Ohne Observability-Werkzeuge schwerer zu debuggen.
+
+---
+
+## Entscheidung
+
+Wir führen **Saga-Choreografie** mit Kafka als Event-Bus ein.
+
+---
+
+## Begründung
+
+Unsere Saga hat einen linearen, nicht verzweigenden Ablauf (reservieren → bezahlen →
+bestätigen oder zurückrollen). Die Komplexität, die Orchestrierung attraktiv macht
+(komplexe bedingte Verzweigungen, viele Teilnehmer), trifft hier nicht zu.
+
+Das Kopplungsrisiko des Orchestrator-Musters ist erheblich: Jede Änderung am Buchungsablauf
+erfordert eine Anpassung des Orchestrators und erzeugt einen Deployment-Engpass. Bei
+Choreografie ist jeder Service eine wirklich autonome Einheit.
+
+Den Nachteil bei der Observability mildern wir wie folgt:
+1. Eine Korrelations-ID (`bookingId`) an jedem Kafka-Event ermöglicht die durchgängige
+   Rekonstruktion des Ablaufs.
+2. Verteiltes Tracing über OpenTelemetry (weitergegeben in den Kafka-Message-Headern).
+3. Lokal wird Kafdrop genutzt, um Topic-Nachrichten während der Entwicklung zu prüfen.
+
+---
+
+## Konsequenzen
+
+### Positiv
+- Kein Orchestrator-Service, der gebaut oder gewartet werden muss.
+- Jedes Service-Team kann seinen Service unabhängig weiterentwickeln.
+- Einen neuen Consumer (z. B. einen Analytics-Service) zu einem Topic hinzuzufügen,
+  erfordert keinerlei Änderungen an bestehenden Services.
+
+### Negativ / Abwägungen
+- Der vollständige Buchungsablauf ist in keiner einzelnen Datei sichtbar. Die AsyncAPI-
+  Spezifikation (`specs/asyncapi/kafka-events.yaml`) dient als maßgebliche Dokumentation
+  des gesamten Event-Flusses.
+- Zyklische Eventketten (Service A löst B aus, B löst A aus) müssen sorgfältig vermieden
+  werden. Die Topic-Eigentumsgrenzen in der AsyncAPI-Spezifikation verhindern das.
+
+---
+
+## Kompensierende Transaktionen (Rollback)
+
+| Fehlgeschlagener Schritt | Kompensierende Aktion |
+|---|---|
+| Zahlung fehlgeschlagen | booking-service gibt den Redis-Lock frei und veröffentlicht `seat-released` |
+| Buchung nach Zahlung storniert | booking-service veröffentlicht `booking-cancelled`; payment-service veranlasst die Stripe-Rückerstattung |
+| Sitzreservierung abgelaufen (TTL) | booking-service veröffentlicht `seat-hold-expired`; waitlist-service befördert den nächsten Nutzer |

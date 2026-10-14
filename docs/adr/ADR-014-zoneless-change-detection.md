@@ -185,3 +185,205 @@ gets for this project.
   with genuinely expensive child subtrees won't get its skip-unrelated-subtrees benefit
   automatically — deferred, not forgotten, tracked here for a future slice if the app ever
   grows enough to need it.
+
+---
+
+---
+
+# ADR-014: Zoneless Change Detection
+
+**Status:** Akzeptiert  
+**Datum:** 2026-08-28  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+ADR-013 (Angular-Upgrade 20 → 21) hat die Zoneless-Migration bewusst als eigenen Folge-Slice
+zurückgestellt, da sie verändert, wie Change Detection in jeder Komponente läuft, und kein
+Tooling-/Build-Austausch ist. Dieses ADR behandelt den zurückgestellten Slice: ob und wie
+`provideZonelessChangeDetection()` übernommen und `zone.js` aus dem Frontend entfernt wird.
+
+### Was Zoneless tatsächlich ändert
+Heute ruft `app.config.ts` `provideZoneChangeDetection({ eventCoalescing: true })` auf, und das
+`build`-Target in `angular.json` führt `zone.js` unter `polyfills`. Zone.js funktioniert, indem es
+jede asynchrone Browser-API (`setTimeout`, `Promise`, DOM-Events, `XMLHttpRequest`, `WebSocket`
+usw.) per Monkey-Patching verändert, sodass Angular nach dem Auslösen *irgendeiner* davon einen
+vollständigen Change-Detection-Durchlauf ausführen kann, ohne dass die Anwendung sagen muss, was
+sich geändert hat. Zoneless entfernt diesen Patch vollständig; Change Detection läuft stattdessen
+nur, wenn etwas Angulars Scheduler ausdrücklich benachrichtigt – ein Signal-Schreibzugriff, ein
+im Template gebundener Event-Handler, `AsyncPipe` oder ein expliziter `ChangeDetectorRef`-Aufruf.
+
+### Audit der Codebasis – durch Lesen jeder Komponente geprüft, nicht angenommen
+Alle drei echten Feature-Komponenten wurden vollständig gelesen, um zu prüfen, ob sie bereits zu
+diesem Modell passen:
+
+- **`EventListComponent`** – zu 100 % signalgesteuert (`eventPage`, `loadError`), jeder
+  HTTP-Callback ruft nur `.set(...)` auf. Bereits zoneless-sicher.
+- **`BookingStatusComponent`** – zu 100 % signalgesteuert (`booking`, `error`, `confirming`,
+  `cancelling`, `remainingSeconds`, `totalHoldSeconds` sowie berechnete Signals für
+  Countdown/Dringlichkeit/Fortschrittsbalken). Der 1-Sekunden-Countdown läuft über ein
+  RxJS-`interval(1000)`, aber der Callback ruft nur Signal-Setter auf – dass der *Timer* nicht
+  mehr zone-gepatcht ist, spielt keine Rolle, da Signal-Schreibzugriffe Angulars Scheduler
+  direkt benachrichtigen, unabhängig davon, was den Callback eingeplant hat. Bereits
+  zoneless-sicher.
+- **`SeatMapComponent`** – überwiegend signalgesteuert (`data`, `loadError`, `openSections`),
+  und ihr nativer `WebSocket.onmessage`-Handler (auf den ersten Blick ein wirklich
+  zonenabhängig aussehendes Muster) läuft bereits über `this.data.set(...)`, ist also ebenfalls
+  in Ordnung. **Aber** sie hat zwei einfache, nicht-signalbasierte Instanzfelder –
+  `holdingSeatId: string | null` und `holdError: string | null` –, die direkt in `selectSeat()`
+  verändert werden, auch innerhalb des *asynchronen* Callbacks
+  `bookingApi.holdSeat(...).subscribe({ error: ... })` (`seat-map.component.ts:147-149`).
+  `holdError` wird direkt im Template gelesen (`seat-map.component.html:31`, per grep bestätigt).
+  Heute funktioniert das nur, weil zone.js die asynchrone Grenze des HTTP-Callbacks patcht und
+  danach einen CD-Durchlauf auslöst. **Unter Zoneless aktualisiert sich die Ansicht hier
+  tatsächlich nicht mehr** – ein echter, konkreter Fehler, den diese Migration beheben muss,
+  kein hypothetisches Risiko.
+- `AppComponent`/`NotFoundComponent` haben überhaupt keinen dynamischen Zustand – für diese
+  Migration irrelevant.
+
+**Es gibt kein offizielles automatisiertes Schematic für diese Migration** – ein Schematic-Name
+(`ng generate @angular/core:zoneless-migration`) tauchte bei der ersten Recherche auf, wurde aber
+direkt gegen die installierte Schematics-Sammlung von `@angular/core` geprüft, genau wie ADR-013
+einen ähnlich behaupteten Schematic-Namen für Karma→Vitest geprüft (und widerlegt) hat, und er
+existiert auch in der Sammlung von Angular 21.2.22 nicht. `provideZonelessChangeDetection()`
+selbst ist real und stabil (`@publicApi 20.2`, bestätigt in den eigenen Typdeklarationen von
+`@angular/core`) – nur die Behauptung zum Migrations-Tooling war falsch. Das muss eine kleine
+Handmigration sein.
+
+### Option A: Zonenbasiert bleiben
+Keine Änderung.
+
+**Stärken:**
+- Null Risiko, null Aufwand.
+
+**Schwächen:**
+- Verpasst die echten Vorteile von Zoneless für diese App: kein zone.js im Bundle (eine
+  Polyfill-Patch-Schicht von etwa 30–40 kB weniger), schnellere/vorhersehbarere Change Detection
+  (kein Durchlauf des gesamten Baums bei jedem DOM-Event, Timer oder jeder HTTP-Antwort – nur bei
+  den etwa 3 Signals, die sich tatsächlich geändert haben), und es ist die Richtung, auf die sich
+  Angular selbst festgelegt hat (Zoneless ist laut der Recherche in ADR-013 der Standard für alle
+  neuen v21-Projekte).
+- Lässt die Lücke bei `holdingSeatId`/`holdError` in `SeatMapComponent` unentdeckt – sie
+  funktioniert heute nur, weil zone.js sie überdeckt; zonenbasiert zu bleiben behebt den latenten
+  Fehler nicht, sondern hält ihn nur unsichtbar.
+
+### Option B: Zu Zoneless migrieren, minimaler Umfang
+`provideZoneChangeDetection(...)` → `provideZonelessChangeDetection()` tauschen, `zone.js` aus den
+Polyfills in `angular.json` und aus `package.json` entfernen und die eine tatsächlich gefundene
+Zoneless-Inkompatibilität beheben (`holdingSeatId`/`holdError` → Signals). Die
+`changeDetection`-Strategie jeder Komponente bleibt beim aktuellen Standard (`Default`,
+implizit), statt im selben Durchgang überall explizit `OnPush` zu ergänzen.
+
+**Stärken:**
+- Die kleinste Änderung, die Zoneless tatsächlich liefert – entspricht der Konvention testbarer
+  Slices, angrenzende, aber trennbare Verbesserungen nicht in einen Slice zu bündeln (dieselbe
+  Überlegung, mit der ADR-012 Tracing/Logging/Alarmierung und ADR-013 Signal Forms/Aria
+  zurückgestellt haben).
+- Die `Default`-Strategie funktioniert auch zoneless korrekt – sie bedeutet nur, dass Angular
+  eine Komponente in einem von einem Vorfahren ausgelösten, geplanten Durchlauf *prüfen würde*,
+  statt unabhängige Teilbäume wie `OnPush` zu überspringen. Da diese App nur 3 kleine Komponenten
+  tief ist und keinen gemeinsamen Zustand im Elternteil hat, ist der Leistungsunterschied
+  vernachlässigbar.
+
+**Schwächen:**
+- Lässt `OnPush` als unfertige Modernisierung zurück – wer den Code später liest, könnte sich
+  zu Recht fragen, warum Zoneless ohne es übernommen wurde.
+
+### Option C: Zu Zoneless migrieren und im selben Slice jeder Komponente explizit `OnPush` geben
+Wie Option B, zusätzlich `changeDetection: ChangeDetectionStrategy.OnPush` an
+`EventListComponent`, `SeatMapComponent`, `BookingStatusComponent`, `AppComponent`.
+
+**Stärken:**
+- „Schließt“ die Modernisierung in einem Durchgang ab – kein Folgeschritt nötig.
+
+**Schwächen:**
+- Vergrößert den Wirkungsradius dieses Slices ohne messbaren Nutzen bei der Größe dieser App
+  (4 Komponenten, keine mit aufwendigen Teilbäumen) – das tatsächliche Verhalten ist mit Zoneless
+  und signalgesteuertem Zustand in jeder Komponente identisch zur `Default`-Strategie aus Option
+  B, da es keine Kosten für das erneute Prüfen unabhängiger Geschwister zu vermeiden gibt, wenn
+  praktisch nichts erneut zu prüfen ist, das nicht ohnehin von einem geänderten Signal abhängt.
+- Dass `OnPush` in Angular 22 der *Standard* für neue Komponenten wird (laut der Recherche in
+  ADR-013 dazu, warum dieses Projekt bei 21 blieb), bedeutet, dass es jetzt von Hand zu ergänzen
+  Arbeit doppelt, die ein künftiges ADR „Angular 22 erwägen“ ohnehin neu aufgreifen würde.
+
+---
+
+## Entscheidung
+
+Option B – Migration zu Zoneless mit `provideZonelessChangeDetection()`, `zone.js` entfernen und
+`holdingSeatId`/`holdError` in `SeatMapComponent` als erforderliche Korrektheitsbehebung (nicht
+als optionale Politur) in Signals umwandeln. `OnPush` wird ausdrücklich zurückgestellt.
+
+Umgesetzt und am selben Tag verifiziert, an dem dieses ADR entworfen wurde, nach einem
+Review-Checkpoint zur untenstehenden Änderungsliste (gemäß der ADR-vor-Umsetzung-Konvention und
+der Checkpoint-Regel testbarer Slices dieses Projekts).
+
+### Konkrete Änderungsliste (umgesetzt)
+1. `frontend/src/app/app.config.ts`: `provideZoneChangeDetection({ eventCoalescing: true })`
+   → `provideZonelessChangeDetection()`.
+2. `frontend/angular.json`: `"zone.js"` aus dem `polyfills`-Array des `build`-Targets entfernen.
+3. `frontend/package.json`: die Abhängigkeit `zone.js` entfernen.
+4. `frontend/src/app/events/seat-map.component.ts`: `holdingSeatId`/`holdError` werden zu
+   `signal<string | null>(null)`, mit `.set(...)` statt direkter Zuweisung; Template
+   (`seat-map.component.html`) und `seatClass()` rufen sie als Funktionen auf.
+5. Testseite: bestätigt, dass kein Test und kein `TestBed.configureTestingModule`-Aufruf im Repo
+   `NgZone` oder zone-gepatchtes Timing referenzierte, abgesehen von dem einen `fakeAsync`-Fall,
+   den ADR-013 bereits durch `vi.useFakeTimers()` ersetzt hat – es waren keine Teständerungen
+   nötig.
+6. Vollständiger Neulauf von `ng build` + `ng test` (weiterhin 32/32 bestanden, keine
+   Änderungen am Testinhalt) sowie eine Live-Browserprüfung (Headless Chrome über rohes CDP – die
+   Erweiterung war in dieser Sitzung nicht verbunden) gegen den echten laufenden Backend-Stack,
+   gezielt auf die zwei riskantesten Pfade: ein echter synthetischer Klick auf einen echten
+   `AVAILABLE`-Sitz (echtes `POST /bookings/hold` → Erfolg → `router.navigate` → echte
+   Buchungsseite mit Live-Countdown, alles mit zuvor bestätigtem `window.Zone === undefined`),
+   und eine erzwungene Wiederholung genau des Konfliktpfads `holdError`/`holdingSeatId` gegen
+   einen bereits serverseitig reservierten Sitz (echtes `409` → `"That seat was just taken by
+   someone else — please pick another."` korrekt dargestellt) – das eine Verhalten, das diese
+   Migration plausibel stillschweigend hätte brechen können, da es der einzige Zustand ist, der
+   von einem einfachen Feld zu einem Signal wechselte. Beide Test-Buchungen wurden anschließend
+   storniert, um die Demodaten sauber zu hinterlassen.
+
+---
+
+## Begründung
+
+Die Umfangsentscheidung (Option B statt C) folgt derselben Disziplin „kleinster vollständiger,
+unabhängig überprüfbarer Slice“, die `docs/plan.md` im gesamten Projekt anwendet – Zoneless selbst
+ist hier die vollständige, vorführbare Einheit (messbar: kein `zone.js` im Bundle, die App
+funktioniert weiterhin); `OnPush` ist eine separate, rein interne Optimierung ohne beobachtbare
+Verhaltensänderung im Maßstab dieser App, sie mitzunehmen würde also nur Review-Fläche hinzufügen,
+ohne etwas Überprüfbares zu ergänzen.
+
+Überhaupt zu migrieren (B/C statt A), statt weiter zurückzustellen, folgt aus dem Audit-Ergebnis,
+dass diese App *bereits* fast vollständig signalgesteuert ist – die beiden vorherigen
+Frontend-Slices, die Signals einführten (`BookingStatusComponent` in Phase 4 Slice 3, dann
+`SeatMapComponent` in Phase 4 Slice 5), taten das damals aus Gründen, die nichts mit Zoneless zu
+tun hatten, haben die Codebasis aber zufällig in einen Zustand gebracht, in dem die verbleibende
+Zoneless-inkompatible Fläche genau zwei Felder in einer Komponente umfasst – so risikoarm, wie
+diese Migration für dieses Projekt nur sein kann.
+
+---
+
+## Konsequenzen
+
+### Positiv
+- Kein `zone.js` im Produktions-Bundle – eine globale Monkey-Patching-Schicht weniger, und Change
+  Detection läuft nur, wenn sich wirklich etwas geändert hat, statt nach jedem asynchronen
+  Callback in der gesamten App.
+- Behebt als Nebeneffekt der Migration selbst einen echten, bisher unentdeckten latenten Fehler
+  (`holdError` wurde nicht zuverlässig dargestellt), ohne separate Fehlersuche.
+- Entspricht Angulars eigener Standardrichtung (Zoneless-by-Default seit v21, laut ADR-013).
+
+### Negativ / Abwägungen
+- Jede *künftige* Komponente oder jeder Service, der einfachen (nicht-Signal-)Zustand innerhalb
+  eines asynchronen Callbacks verändert und erwartet, dass er dargestellt wird, wird
+  stillschweigend genauso aufhören zu funktionieren, wie es `SeatMapComponent` beinahe passiert
+  wäre – das ist eine dauerhafte Disziplin, die die Codebasis nun aufrechterhalten muss, keine
+  einmalige Korrektur. Bei der geringen Größe der App ist ein einzeiliger Hinweis in diesem ADR
+  für künftige Mitwirkende sinnvoller als eine Lint-Regel.
+- `OnPush` bleibt vorerst unübernommen (Option B); wer künftig eine Komponente mit tatsächlich
+  aufwendigen Kind-Teilbäumen erweitert, erhält dessen Vorteil des Überspringens unabhängiger
+  Teilbäume nicht automatisch – zurückgestellt, nicht vergessen, hier für einen künftigen Slice
+  vermerkt, falls die App je so weit wächst, dass es nötig wird.

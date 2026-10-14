@@ -149,3 +149,165 @@ this decision would carry over.
 - Free-tier offerings change over time; both LocalStack (March 2026) and Oracle (June 2026) cut
   theirs this year. Re-verify them at the start of the corresponding slice.
 - The prod VM is arm64 while development happens on x86, so prod needs multi-arch images.
+
+---
+
+---
+
+# ADR-016: Dev- und Prod-Umgebungen
+
+**Status:** Akzeptiert (nur Entscheidung – die Umsetzung folgt in separaten Slices)  
+**Datum:** 2026-09-29  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+Die Anwendung soll in zwei Umgebungen laufen: **Dev**, die lokal deployt, betrieben und getestet
+werden kann, und **Prod**. Zwei weitere Randbedingungen gelten:
+
+- Sie muss **kostenlos** bleiben.
+- Die Dev-Umgebung soll dem tatsächlichen Deployment ähneln, nicht nur der Entwicklung. Werkzeuge
+  wie LocalStack oder Floci wurden als Kandidaten für die Dev-Seite genannt.
+
+Der ursprüngliche Phase-5-Plan nannte **GCP Cloud Run** als Deployment-Ziel, und das Repo enthält
+bereits leeres Kustomize-Gerüst: `k8s/base`, `k8s/overlays/dev`, `k8s/overlays/prod`.
+
+### Wovon die Services tatsächlich abhängen
+Keiner der sechs Services ruft eine Cloud-Provider-API auf. Sie sprechen direkt mit **Kafka**,
+**PostgreSQL** (eine Datenbank pro Service, ADR-001) und **Redis** (ADR-003). Die Konfiguration
+liegt heute in einer `application.yml` pro Service, mit fest eincodierten Zugangsdaten
+(`ticketing`/`ticketing`), `ddl-auto: update` und `DEBUG`-Logging – Werte, die für die lokale
+Entwicklung in Ordnung, für Prod aber ungeeignet sind.
+
+## Optionen
+
+### Option A: AWS + LocalStack / Floci für Dev
+LocalStack und Floci emulieren **AWS-APIs**. Sie bringen nur Nutzen, wenn Prod auf
+AWS-verwalteten Diensten läuft (RDS, ElastiCache, MSK, ECS/EKS) und das Deployment
+Infrastructure-as-Code ist (z. B. Terraform), in Dev gegen den Emulator und in Prod gegen echtes
+AWS angewendet.
+
+Am 2026-09-29 gegen die eigenen Seiten der Anbieter geprüft:
+
+- **LocalStack**: Seit Release 2026.03.0 braucht jedes Image einen Auth-Token. Der einzige
+  kostenlose Tarif, *Hobby*, ist **nur nichtkommerziell** und enthält keinen der Dienste, die
+  diese App bräuchte. RDS, ECS und ElastiCache beginnen im kostenpflichtigen Tarif *Base*; EKS und
+  MSK brauchen *Ultimate* ([Tarife](https://docs.localstack.cloud/aws/licensing/)). **Für diese
+  App nicht kostenlos.**
+- **Floci** ([floci-io/floci](https://github.com/floci-io/floci)): MIT-lizenziert, kein Konto,
+  kein Auth-Token, keine Feature-Sperren. Es emuliert alle fünf Dienste, die diese App bräuchte,
+  jeweils gestützt auf echte Engine-Container:
+
+  | AWS-Dienst | Was Floci betreibt |
+  |---|---|
+  | RDS | `postgres:16-alpine` |
+  | ElastiCache | `valkey/valkey:8` |
+  | MSK | `redpandadata/redpanda` – Kafka-API-kompatibel, aber nicht Apache Kafka selbst |
+  | ECS | echte Docker-Container |
+  | EKS | `rancher/k3s` |
+
+  **Für die Dev-Seite kostenlos.**
+- Floci räumt den Einwand der Emulator-Kosten aus, aber nicht den Kerneinwand: **Prod auf
+  echtem AWS ist nicht kostenlos.**
+  - MSK hat kein kostenloses Kontingent.
+  - EKS berechnet die Control Plane.
+  - Fargate hat kein kostenloses Kontingent.
+  - Dev auf Floci würde die Bereitstellung für ein AWS-Prod einüben, das sich dieses Projekt nicht
+    leisten kann.
+- Die Services rufen zur Laufzeit weiterhin keine AWS-APIs auf, Floci würde also nur
+  *Infrastruktur* emulieren (z. B. Terraform, das auf Floci statt auf AWS angewendet wird), nichts,
+  was der Anwendungscode tut.
+- Es würde Prod außerdem von GCP nach AWS verlegen.
+
+### Option B: GCP Cloud Run (ursprünglicher Plan)
+- Es gibt keinen Cloud-Run-Emulator; Dev bliebe bei docker compose oder einem lokalen Cluster.
+- Cloud Run skaliert auf null, was langlebige **Kafka-Consumer** bricht. Jeder Service außer
+  api-gateway konsumiert Kafka. Instanzen warm zu halten übersteigt das kostenlose Kontingent.
+- Cloud SQL und Memorystore haben kein kostenloses Kontingent.
+
+### Option C: Kubernetes in beiden Umgebungen – lokaler Cluster für Dev, k3s auf einer kostenlosen VM für Prod
+- Dieselben Container-Images und dieselben `k8s/base`-Manifeste laufen in beiden Umgebungen; die
+  Unterschiede liegen in den bereits vorhandenen Kustomize-Overlays `k8s/overlays/{dev,prod}`.
+- Dev läuft auf einem lokalen Cluster: **Rancher Desktop** (k3s, kostenlos, Open Source), mit kind
+  oder k3d als leichtgewichtigeren Alternativen.
+- Prod läuft auf **k3s** auf einer kostenlosen VM, z. B. Oracle Cloud Always Free. Kafka, Postgres
+  und Redis laufen im Cluster.
+  - **Geprüft am 2026-09-29:** Oracle hat das Ampere-A1-Kontingent am 2026-06-15 ohne öffentliche
+    Ankündigung von 4 OCPU / 24 GB auf **2 OCPU / 12 GB** gekürzt
+    ([InfoQ](https://www.infoq.com/news/2026/07/oracle-cloud-free-tier-limits/)).
+  - Das genügt weiterhin für k3s plus diesen Stack. Grobe Schätzung:
+    - sechs Spring-Boot-JVMs: etwa 3 GB
+    - Kafka und ZooKeeper: etwa 1,5 GB
+    - Postgres, Redis und k3s selbst: etwa 1–2 GB
+
+    Das lässt wenig Spielraum für Rancher Manager.
+  - A1 ist **arm64**, daher muss jedes Image, eigene wie Drittanbieter, für arm64 verfügbar sein.
+    Unsere Images basieren auf `eclipse-temurin`; beim Confluent-Kafka-Image ist das im
+    Prod-Slice noch zu prüfen. CI würde dann Multi-Arch-Images mit `docker buildx` bauen.
+  - Kostenlose Kontingente ändern sich ohne Vorankündigung, wie diese Kürzung zeigt. Die Grenzen
+    zu Beginn des Prod-Slices erneut prüfen.
+- **Rancher Manager** (Apache 2.0, kostenlos; nur der Rancher-Prime-Support ist kostenpflichtig)
+  kann auf k3s aufgesetzt werden für die UI, RBAC und Multi-Cluster-Verwaltung, die viele
+  Unternehmen auf Private-Cloud-Plattformen nutzen. Er braucht allein mehrere GB RAM.
+
+## Entscheidung
+
+**Option C.**
+
+- **Dev = lokales Kubernetes auf Rancher Desktop** (kind/k3d als dokumentierte Alternativen).
+- **Prod = k3s auf einer kostenlosen VM.**
+- **Rancher Manager ist optional**, in einem eigenen Slice nach dem ersten erfolgreichen
+  Prod-Deployment – er trägt mehr zur Betriebsgeschichte bei, als er für einen einzelnen Cluster
+  technisch erforderlich ist.
+- **RKE2** (Ranchers gehärtete Kubernetes-Distribution) wird als möglicher späterer
+  Härtungsschritt anstelle von k3s vermerkt.
+- „GCP Cloud Run“ wird von der Roadmap gestrichen.
+
+Es wird kein Cloud-Emulator benötigt: Die Dev-Umgebung deployt den echten Stack auf eine echte
+Kubernetes-API, genau das, was Prod betreibt.
+
+**Floci bleibt ein dokumentierter Fallback.** Zieht Prod je nach AWS um, etwa mit Guthaben oder
+einem bezahlten Konto, ist Floci das kostenlose Dev-Gegenstück. LocalStack ist es nicht: Sein
+kostenloser Tarif schließt jeden Dienst aus, den diese App braucht. Flocis EKS-Emulation ist
+selbst k3s, die Kubernetes-Manifeste aus dieser Entscheidung ließen sich also übernehmen.
+
+## Erforderliche Änderungen (Folge-Slices, in Reihenfolge)
+
+- **(a) Spring-Konfiguration pro Umgebung.** Fest eincodierte Werte durch Umgebungsvariablen
+  (mit lokalen Standardwerten) ersetzen, `application-dev.yml` / `application-prod.yml`
+  ergänzen. Prod: `ddl-auto: validate` mit **Flyway**-Migrationen, `INFO`-Logging,
+  Zugangsdaten nur aus Secrets.
+- **(b) K8s-Basismanifeste.** Deployments und Services für die sechs Services; StatefulSets für
+  Postgres, Redis und Kafka; ein Ingress einschließlich des WebSocket-Pfads zum booking-service
+  (ADR-009); Liveness-/Readiness-Probes auf den vorhandenen Actuator-Health-Gruppen.
+- **(c) Containerisiertes Frontend** (z. B. nginx), mit pro Umgebung gesetzten API- und
+  WebSocket-URLs.
+- **(d) Dev-Deploy-Skript** gegen Rancher Desktop – Images lokal geladen, keine Registry.
+- **(e) Prod.**
+  - Secrets über Sealed Secrets oder GitHub-Actions-Secrets.
+  - Eine Image-Registry: Der Speicher für private GHCR-Images ist im kostenlosen Tarif klein
+    (etwa 500 MB), zu wenig für sechs JVM-Images. Das bedeutet entweder ein öffentliches Repository
+    oder eine andere kostenlose Registry.
+    *Korrigiert in ADR-021:* Die 500-MB-Grenze gilt für die anderen GitHub-Packages-Registries;
+    der GHCR-Container-Speicher ist derzeit kostenlos, auch für private Images.
+  - Ein manuell oder per Tag ausgelöster Deploy-Job.
+- **(f) Optional:** Rancher Manager.
+
+## Konsequenzen
+
+**Positiv**
+- In beiden Umgebungen kostenlos.
+- Dev und Prod unterscheiden sich nur in Overlays, nicht in der Deployment-Mechanik.
+- Nutzt bereits vorhandenes Gerüst.
+- Kubernetes plus Rancher ist das Setup, das man häufig auf Private-Cloud-Plattformen findet.
+
+**Negativ / akzeptiert**
+- Kafka, Postgres und Redis in Prod selbst zu hosten bedeutet, dass Backups und Upgrades unsere
+  Verantwortung sind – für ein Portfolio-System mit wegwerfbaren Demodaten akzeptabel.
+- Eine einzelne kostenlose VM ist ein Single Point of Failure; es gibt keine Hochverfügbarkeit.
+- Kostenlose Angebote ändern sich mit der Zeit; sowohl LocalStack (März 2026) als auch Oracle
+  (Juni 2026) haben ihre dieses Jahr gekürzt. Zu Beginn des jeweiligen Slices erneut prüfen.
+- Die Prod-VM ist arm64, während die Entwicklung auf x86 stattfindet, daher braucht Prod
+  Multi-Arch-Images.

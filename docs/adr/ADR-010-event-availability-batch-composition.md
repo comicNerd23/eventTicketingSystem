@@ -101,3 +101,115 @@ building a known-bad request pattern into the fix from day one. `EventService` n
   read for any API response anymore — every read path recomputes live. Removing the column
   entirely would be a genuine schema migration, out of scope for this bug fix; left in place
   and noted here explicitly so it doesn't read as an oversight later.
+
+---
+
+---
+
+# ADR-010: Live-Verfügbarkeit von Events – Batch-Komposition gegen booking-service
+
+**Status:** Akzeptiert  
+**Datum:** 2026-07-30  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+Beim manuellen Testen des Frontends durch den Nutzer entdeckt: Die Event-Liste zeigte „650/650
+Plätze verfügbar“ für ein Event, dessen eigener Sitzplan bereits einen Sitz mit Status `BOOKED`
+hatte. Die Ursache wurde durch Lesen des Codes ermittelt, nicht angenommen:
+
+- `Event.availableSeats` ist eine einfache Datenbankspalte, die genau einmal gesetzt wird –
+  `event.setAvailableSeats(venue.getCapacity())` in `EventService.createEvent` – und danach
+  nirgends in der Codebasis mehr aktualisiert wird (bestätigt per Suche im gesamten Repo: null
+  weitere Aufrufstellen). `EventResponse.from(event)`, genutzt von `GET /events/{id}` und
+  `GET /events`, gab schlicht diesen dauerhaft veralteten Stand vom ersten Tag wieder.
+- Der Sitzplan (`EventService.getSeatMap`) hatte dieses Problem nie, weil er bereits live
+  komponiert: Er ruft `GET /bookings/events/{eventId}/active-seats` des booking-service auf und
+  führt bei jeder Anfrage den echten Status pro Sitz zusammen. Die Event-Liste tat nie das
+  Entsprechende – sie zeigte immer die ursprüngliche Kapazität, unabhängig von realer
+  Buchungsaktivität.
+
+`getEvent`/`listEvents` so zu korrigieren, dass sie Live-Daten wie `getSeatMap` komponieren,
+erfordert pro Event einen Aufruf an den booking-service. `listEvents` liefert eine Seite von
+Events (bis zu `size`, z. B. 10–20) – die Frage ist, ob daraus ein serviceübergreifender Aufruf
+pro Event der Seite oder ein gebündelter Aufruf für die ganze Seite wird.
+
+### Option A: Den bestehenden Endpunkt pro Event wiederverwenden, N-mal
+`GET /bookings/events/{eventId}/active-seats` (den Endpunkt, den `getSeatMap` bereits nutzt)
+einmal pro Event aufrufen, das eine Live-Zahl braucht.
+
+**Stärken:**
+- Kein neuer Backend-Endpunkt – nutzt genau das, was schon existiert.
+- Einfach: Nirgends ist Aggregationslogik nötig.
+
+**Schwächen:**
+- Ein echtes N+1-Muster: Eine Seite mit 10 Events bedeutet 10 sequenzielle
+  serviceübergreifende Aufrufe, nur um eine Listenseite darzustellen. Im Maßstab dieses
+  Projekts begrenzt und tolerierbar, aber ein Muster, das mit wachsender Seitengröße oder
+  Eventzahl schlechter wird – die falsche Form, um sie bewusst zu bauen, wenn die Lösung ohnehin
+  neu entworfen wird.
+
+### Option B: Neuer Batch-Endpunkt im booking-service
+`GET /bookings/events/active-seats/counts?eventIds=a,b,c` hinzufügen, der pro angefragtem
+Event eine Zahl aktiver Sitze in einer einzigen Antwort liefert.
+
+**Stärken:**
+- Auf genau einen zusätzlichen serviceübergreifenden Aufruf begrenzt, unabhängig von der
+  Seitengröße – eine Seite mit 10 Events kostet denselben einen Aufruf wie eine mit 2.
+- Zeigt ein Batch-Auflösungsmuster (erst aggregieren, dann auffächern), statt eine N+1-Form
+  standardmäßig hinzunehmen.
+
+**Schwächen:**
+- Mehr Arbeit: eine neue Repository-Abfrage, ein DTO, eine Service-Methode und ein
+  Controller-Endpunkt im booking-service sowie eine neue Client-Methode im event-service – statt
+  Bestehendes wiederzuverwenden.
+
+---
+
+## Entscheidung
+
+Wir führen **Option B** ein – einen neuen Batch-Endpunkt im booking-service.
+
+---
+
+## Begründung
+
+Da dieser Fix unabhängig von der Option den Lesepfad des booking-service berührt (in beiden
+Fällen ein neuer Client-Aufruf vom event-service), ist der Batch-Endpunkt nicht wesentlich
+invasiver als Option A – er ist eine ähnlich kleine, klar umrissene Ergänzung (eine
+Repository-Abfrage, ein DTO, eine Service-Methode, ein Controller-Endpunkt), die vermeidet, von
+Anfang an ein bekanntermaßen schlechtes Anfragemuster in den Fix einzubauen. `EventService`
+ruft nun `bookingServiceClient.getActiveSeatCounts(eventIds)` genau einmal pro `GET /events`
+oder `GET /events/{id}` auf, egal ob die Seite 1 oder 20 Events hat.
+
+---
+
+## Konsequenzen
+
+### Positiv
+- Behebt den echten Fehler: `GET /events` und `GET /events/{id}` melden nun tatsächlich
+  Live-Verfügbarkeit, passend zu dem, was der Sitzplan schon immer zeigte.
+- Begrenzte Kosten: ein zusätzlicher serviceübergreifender Aufruf pro Request, unabhängig von
+  der Seitengröße.
+- `BookingService.getActiveSeatCounts` liefert einen Eintrag pro *angefragter* Event-ID
+  (Standardwert `0` für Events ohne aktive Buchungen), sodass der Aufrufer nie raten muss, ob
+  ein fehlender Eintrag „null“ bedeutet oder „der Server hat dieses Event vergessen“.
+
+### Negativ / Abwägungen
+- **Neue Kopplung im Fehlerfall.** Das Komponieren von Live-Daten bedeutet, dass die
+  `BookingServiceUnavailableException` nun auch aus `getEvent`/`listEvents` herauspropagiert,
+  nicht nur aus `getSeatMap` – ein Ausfall des booking-service legt nun auch die Event-Liste und
+  die Event-Detail-Endpunkte lahm, nicht nur den Sitzplan. Das ist eine bewusste Entscheidung
+  (entsprechend der Entscheidung „kein stilles Zurückfallen auf eine falsche Zahl“, die
+  `getSeatMap` bereits getroffen hat) und kein Versehen: Stillschweigend auf den veralteten Wert
+  `Event.availableSeats` zurückzufallen, würde den ursprünglichen Fehler unter anderem Auslöser
+  (kurzzeitige Nichtverfügbarkeit des booking-service) wieder einführen, statt dass ein
+  Netzwerkfehler ehrlich sichtbar wird.
+- **Die gespeicherte Datenbankspalte `Event.availableSeats` ist nun vestigial.** Sie wird bei der
+  Event-Erstellung weiterhin einmal geschrieben (wo sie korrekt ist, da noch keine Buchungen
+  existieren), aber für keine API-Antwort mehr gelesen – jeder Lesepfad berechnet live neu. Die
+  Spalte ganz zu entfernen wäre eine echte Schemamigration, außerhalb des Umfangs dieses
+  Bugfixes; sie bleibt bestehen und wird hier ausdrücklich vermerkt, damit sie später nicht wie
+  ein Versehen wirkt.

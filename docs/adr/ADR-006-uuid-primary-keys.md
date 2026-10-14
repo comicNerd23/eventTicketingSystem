@@ -182,3 +182,206 @@ cache-locality pressure (per the Performance Considerations above), `GenerationT
 tooling around it matures further, or a manually implemented generator) without changing the
 column type or any API contract — only the generation strategy changes. No service has hit
 that scale yet.
+
+---
+
+---
+
+# ADR-006: UUID-Primärschlüssel statt automatisch hochzählendem Long
+
+**Status:** Akzeptiert  
+**Datum:** 2026-07-28  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+Jede Entity in allen Services (`Booking`, `Venue`, `Event` und ihre Fremdschlüssel-Referenzen
+wie `eventId`, `seatId`, `venueId`, `organizerId`) braucht einen Primärschlüsseltyp.
+`booking-service` (Phase 2) nutzte bereits `UUID` über
+`@GeneratedValue(strategy = GenerationType.UUID)`. Beim Bau des `event-service` (Phase 3,
+Slice 1) stellte sich dieselbe Frage erneut für `Venue.id` und `Event.id`: weiter `UUID`
+verwenden oder auf einen automatisch hochzählenden `Long` (`GenerationType.IDENTITY`/`SEQUENCE`)
+wechseln, der in Spring-Boot-Tutorials mit einer einzigen Datenbank der gängigere Standard ist?
+
+Mehrere Optionen wurden betrachtet, nicht nur die binäre Wahl Long vs. UUID:
+
+1. **Automatisch hochzählender `Long`** (IDENTITY/SEQUENCE) – am kleinsten, sequenziell,
+   menschenlesbar.
+2. **Zufalls-UUID v4** – was `booking-service` bereits nutzt.
+3. **Zeitlich geordnete UUID (UUIDv7)** – gleicher 16-Byte-UUID-Typ, aber die oberen Bits
+   kodieren einen Zeitstempel, sodass die Werte ungefähr monoton steigen.
+4. **ULID** – konzeptionell dieselbe Idee wie UUIDv7 (Zeitstempel-Präfix + zufälliger Suffix),
+   aber als 26-stelliger Base32-String statt im nativen binären UUID-Format dargestellt.
+5. **Snowflake-artige ID** (Muster von Twitter/Discord/Instagram) – 64-Bit-Long aus
+   Zeitstempel + Shard-/Worker-ID + Sequenzzähler.
+6. **Natürliche/fachliche Schlüssel** – z. B. das Tupel `(venueId, dateTime)` eines Events
+   anstelle eines Surrogatschlüssels.
+
+---
+
+## Entscheidung
+
+Wir verwenden **`UUID` (zufällig, v4)** als Primärschlüsseltyp für jede Entity in jedem Service,
+erzeugt über `@GeneratedValue(strategy = GenerationType.UUID)`. Das gilt für `Venue.id` /
+`Event.id` im `event-service` und alle serviceübergreifenden Fremdschlüsselfelder
+(`Event.venueId`, `Event.organizerId`, `Booking.eventId`, `Booking.seatId`, `Booking.userId`).
+
+**UUIDv7 wird ausdrücklich als wahrscheinliches künftiges Upgrade genannt** (siehe Ausblick),
+sobald das Schreibvolumen es rechtfertigt – es erfordert keine Schema- oder API-Änderung,
+sondern nur eine andere Strategie zur ID-Erzeugung.
+
+---
+
+## Begründung
+
+### Konsistenz über Servicegrenzen hinweg
+`booking-service.Booking.eventId` ist heute eine `UUID` (vom Client geliefert) und wird
+irgendwann eine echte Fremdreferenz auf `event-service.Event.id`. Würde `event-service`
+`Long` nutzen, während `booking-service` `UUID` erwartet, wären sich die beiden Services über
+den Typ desselben logischen Bezeichners uneinig. Ein einheitlicher Typ überall vermeidet eine
+Unstimmigkeit an der einen Stelle – `eventId` –, an der die Daten beider Services bereits
+zusammenpassen müssen.
+
+### Keine ID-Kollisionen zwischen Services
+Dieses Projekt folgt dem Datenbank-pro-Service-Prinzip ([[ADR-001]]). Die Datenbank jedes
+Services vergibt ihre Primärschlüssel unabhängig. Mit `Long`/Auto-Increment würden
+`booking-service` und `event-service` jeweils `1, 2, 3, ...` erzeugen, ohne Bezug zueinander.
+Global eindeutige UUIDs bedeuten, dass IDs über Servicegrenzen hinweg nie kollidieren – wichtig,
+falls Daten je korreliert, zusammengeführt oder repliziert werden (z. B. ein Kafka-getriebenes
+Read-Model, das Buchungen mit Events verknüpft).
+
+### IDs sind bekannt, bevor die Zeile committet wird
+`GenerationType.UUID` erzeugt den Bezeichner im Speicher vor dem `INSERT`, anders als
+`IDENTITY`/`SEQUENCE`, die einen Wert erst nach dem Datenbank-Roundtrip vergeben. Das ist für
+die Choreografie-Saga ([[ADR-002]]) wichtig: Ein Service kann ein Kafka-Event mit der ID einer
+Entity direkt nach deren Erzeugung veröffentlichen, ohne auf einen DB-Roundtrip zu warten, um
+den vergebenen Schlüssel zu erfahren.
+
+### IDs liegen in öffentlichen REST-APIs offen und dürfen nicht erratbar sein
+Jede ID in diesem Projekt (`/events/{id}`, `/venues/{id}`, `/bookings/{id}`) ist direkt in der
+API sichtbar. Mit sequenziellen Longs könnte ein Client `/events/45`, `/events/46`, ...
+durchzählen, um den gesamten Katalog abzugreifen oder das Geschäftsvolumen (Anzahl Events/
+Buchungen) abzuleiten. Zufällige UUIDs sind nicht erratbar und schließen den billigsten
+Enumerationsangriff, ohne sich allein auf Autorisierungsprüfungen zu verlassen.
+
+### Warum nicht gleich UUIDv7
+UUIDv7 behält alle obigen Vorteile (nativer 16-Byte-`uuid`-Typ, nicht erratbare Zufallskomponente,
+Erzeugung vor dem Insert) und behebt zusätzlich den Schreibmuster-Nachteil von UUIDv4 (siehe
+Leistungsüberlegungen). Es wurde nicht sofort übernommen, weil ein eigener ID-Generator nötig
+ist – Hibernate 7 / Spring Boot 4.1 liefert keine eingebaute `GenerationType.UUID_V7`-Strategie,
+und native `uuidv7()`-Unterstützung kam erst mit Postgres 18. Bei der aktuellen Größe des
+Projekts rechtfertigt sich die zusätzliche Abhängigkeit noch nicht; UUIDv4 ist der einfachere
+Standard, und der spätere Wechsel auf UUIDv7 ist ein Austausch der Generierungsstrategie, keine
+Schema- oder API-Änderung.
+
+### Warum nicht die anderen Optionen
+- **ULID**: gleicher Vorteil der zeitlichen Ordnung wie UUIDv7, wird aber typischerweise als
+  `TEXT`/`CHAR(26)` statt im nativen 16-Byte-`uuid`-Typ von Postgres gespeichert – größer auf
+  der Platte und langsamer zu vergleichen; man gibt also die kompakte Speicherung auf, die
+  UUIDv7 bei gleichem Sortiervorteil behält.
+- **Snowflake-artige ID**: entspricht mit 8 Byte der Größe von `Long` und ist zeitlich geordnet,
+  erfordert aber ein Schema zur Vergabe von Worker-/Shard-IDs – ein Koordinationsproblem, dessen
+  Betriebsaufwand sich im Maßstab dieses Projekts nicht lohnt.
+- **Natürliche/fachliche Schlüssel**: als Primärschlüssel abgelehnt, weil sich fachliche
+  Schlüssel (Venue-Name, Datum/Uhrzeit eines Events) ändern können (Verschiebung,
+  Umbenennung) und ein veränderlicher Primärschlüssel sich schlecht durch alle referenzierenden
+  Fremdschlüssel kaskadiert. Bei Bedarf kann er später als separate Unique-Constraint neben dem
+  Surrogat-UUID-Schlüssel existieren.
+
+---
+
+## Leistungsüberlegungen (UUIDv4 vs. UUIDv7 vs. Long, im großen Maßstab)
+
+### Im kleinen Maßstab (dieses Projekt – Tausende bis niedrige Millionen Zeilen): kein messbarer Unterschied
+Die gesamte Tabelle und ihre Indizes passen unabhängig vom Schlüsseltyp bequem in Postgres'
+`shared_buffers`/den OS-Page-Cache. Jede Abfrage und jeder Insert ist praktisch eine
+In-Memory-Operation; der Größenunterschied von 16 zu 8 Byte oder die zusätzlichen
+Index-Page-Splits durch die zufällige Insert-Reihenfolge bei UUIDv4 kosten Mikrosekunden, die
+in der Praxis nicht auffallen. Deshalb würde jede der obigen Optionen für
+`event-service`/`booking-service` heute funktionieren – die Wahl betrifft architektonische
+Korrektheit und Zukunftssicherheit, nicht gemessene Leistung.
+
+### Im großen Maßstab (zig Millionen+ Zeilen, anhaltend hohe Insert-Rate) werden die Unterschiede real:
+
+1. **Index-Aufblähung / Page-Splits.** Ein B-Tree-Index wird in sortierter Schlüsselreihenfolge
+   gehalten. Sequenzielle Longs und UUIDv7 fügen immer am „rechten Rand“ des Index ein – billig,
+   ohne Umsortierung. Zufällige UUIDv4 landen jedes Mal an einer zufälligen Stelle im
+   Schlüsselraum und erzwingen Page-Splits im gesamten Baum. Das verlangsamt Inserts messbar und
+   macht den Index spürbar größer (Fragmentierung/toter Platz) als einen entsprechenden Index mit
+   sequenziellem Schlüssel oder UUIDv7 für dieselben Zeilen.
+
+2. **Buffer-Cache-Lokalität.** Sequenzielle/zeitlich geordnete Schlüssel bündeln „heiße“, neue
+   Zeilen auf wenigen physischen Seiten, was das Working Set klein und cachefreundlich hält.
+   Zufällige UUIDv4 streuen Inserts über den gesamten Indexbereich, sodass das effektive „heiße“
+   Set die ganze Tabelle wird. Wächst der Index über den RAM hinaus, bedeutet das mehr
+   Cache-Misses und zufällige Plattenzugriffe – für jede Abfrage, die diesen Index berührt, nicht
+   nur für Inserts.
+
+3. **WAL- und Vacuum-Aufwand.** Mehr Page-Splits und verstreute Schreibvorgänge bedeuten mehr
+   Write-Ahead-Log-Volumen pro Insert, und Autovacuum muss eine stärker fragmentierte Struktur
+   pflegen – ein betrieblicher Aufwand bei I/O, Replikationsbandbreite und Backup-Größe.
+
+4. **Die rohe Schlüsselgröße potenziert sich.** Der Unterschied von 16 zu 8 Byte beschränkt sich
+   nicht auf den Index des Primärschlüssels selbst – jede Fremdschlüsselspalte, die darauf
+   verweist (z. B. `Booking.eventId`), und jeder Index auf diesen FK-Spalten zahlt dieselben
+   Größenkosten, in jeder referenzierenden Tabelle.
+
+### Wie die Optionen bei diesen Punkten abschneiden
+- **Long/bigint**: bei allen vier Punkten am besten, führt aber die Erratbarkeit und die
+  serviceübergreifenden Kollisionen wieder ein, wegen derer dieses ADR Long ablehnt.
+- **UUIDv7**: erhält die Vorteile von Punkt 1 und 2 fast geschenkt (zeitlich geordnet, daher
+  append-freundlich und cache-lokal) und behält volle UUID-Eindeutigkeit/Nicht-Erratbarkeit und
+  den nativen 16-Byte-`uuid`-Typ von Postgres – verliert gegenüber Long nur bei der rohen
+  Bytegröße, nicht beim Insert-/Cache-Verhalten.
+- **UUIDv4 (aktuelle Entscheidung)**: schlechtester Fall bei Punkt 1, 2 und 3; bei Punkt 4
+  gleich wie UUIDv7.
+- **ULID**: gleicher Vorteil der zeitlichen Ordnung wie UUIDv7 bei Punkt 1 und 2, wird aber
+  typischerweise als Text statt im nativen binären `uuid`-Typ von Postgres gespeichert, ist also
+  größer auf der Platte und langsamer zu vergleichen – es erbt den Schreibmuster-Vorteil, gibt
+  aber den Vorteil kompakter Speicherung auf.
+- **Snowflake**: das Beste aus beiden Welten (8 Byte, annähernd sequenziell, cache-lokal), führt
+  aber das Koordinationsproblem der Worker-IDs wieder ein – echter Betriebsaufwand, der im
+  Maßstab dieses Projekts nicht gerechtfertigt ist.
+
+Das Leistungsargument für den Wechsel weg von UUIDv4 greift erst, wenn die Indizes nicht mehr
+bequem in den Speicher passen – realistisch bei zig Millionen Zeilen unter anhaltender
+Schreiblast. Das liegt heute außerhalb des Projektumfangs, ist aber genau die im Ausblick
+unten genannte Auslösebedingung.
+
+---
+
+## Konsequenzen
+
+### Positiv
+- Ein Bezeichnertyp über alle Services und alle Fremdschlüsselreferenzen – keine Übersetzung
+  oder Mehrdeutigkeit an Servicegrenzen.
+- IDs lassen sich bedenkenlos in öffentlichen API-Antworten zeigen, ohne aufzählbare
+  Geschäftsdaten preiszugeben.
+- IDs können vor der Persistierung erzeugt werden, was zum Event-Publishing-Ablauf der
+  Kafka-Saga passt.
+
+### Negativ / Abwägungen
+- **Speicher- und Indexgröße**: `UUID` hat 16 Byte gegenüber 8 bei `bigint`. Größere
+  Primärschlüsselspalten bedeuten größere Sekundärindizes überall dort, wo die ID als
+  Fremdschlüssel gespeichert ist.
+- **Index-Fragmentierung bei hohem Insert-Volumen**: Zufällige (v4) UUIDs sind nicht in
+  Einfügereihenfolge, daher erzeugen B-Tree-Indizes auf dem Primärschlüssel unter hoher
+  Schreiblast mehr Page-Splits als ein sequenzieller `Long` (oder UUIDv7). Im Maßstab dieses
+  Projekts (Portfolio-Demo, kein Produktionsdurchsatz) ist das praktisch kein Problem – siehe
+  Leistungsüberlegungen.
+- **Weniger menschenlesbar**: `UUID`s sind beim manuellen Testen oder Debuggen schwerer mit dem
+  Auge zu lesen/einzutippen/zu vergleichen als `Long`s (abgemildert dadurch, dass `demo.sh` die
+  Abläufe skriptet, statt manuelle ID-Eingabe zu verlangen).
+
+---
+
+## Ausblick
+
+Muss ein Service je auf sehr hohen Insert-Durchsatz optimiert werden oder zeigt er Druck auf
+die Index-Cache-Lokalität (siehe Leistungsüberlegungen oben), kann `GenerationType.UUID`
+(zufällig, v4) gegen eine zeitlich geordnete Variante getauscht werden (UUIDv7, sobald die
+Hibernate-/Postgres-Unterstützung weiter gereift ist, oder ein selbst implementierter
+Generator) – ohne Änderung des Spaltentyps oder eines API-Vertrags; nur die
+Generierungsstrategie ändert sich. Bisher hat kein Service diesen Maßstab erreicht.

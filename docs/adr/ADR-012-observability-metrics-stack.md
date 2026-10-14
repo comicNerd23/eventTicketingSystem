@@ -159,3 +159,174 @@ checkpoint rather than risking a half-finished bundle of three pillars at once.
   cross-service journey — this slice only shows *that* something is slow, not *why*
   across service boundaries. That gap is precisely what the deferred tracing slice
   addresses.
+
+---
+
+---
+
+# ADR-012: Observability Slice 1 – Metriken via Actuator + Micrometer + Prometheus + Grafana
+
+**Status:** Akzeptiert  
+**Datum:** 2026-07-31  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+Das Projekt hat bisher überhaupt keine Observability-Werkzeuge – eine Suche in der `pom.xml`
+jedes Services und in `docker-compose.yml` nach actuator/micrometer/prometheus/grafana liefert
+null Treffer. Auch Phase 5 (DevOps) hat noch nichts hervorgebracht (`k8s/base` und
+`k8s/overlays/{dev,prod}` existieren nur als leere Gerüstordner). Dieses ADR behandelt den ersten
+Slice von Phase 5: Metriken.
+
+### Hintergrund zu Observability
+
+„Observability“ wird üblicherweise als drei sich ergänzende Säulen beschrieben, die jeweils eine
+andere Frage beantworten und unterschiedliche Kosten-/Granularitäts-Abwägungen haben:
+
+- **Metriken** – numerische Messwerte, über die Zeit aggregiert (Anfragerate, Latenz-Perzentile,
+  Fehlerrate, Ressourcennutzung). Auch bei hohem Volumen günstig zu speichern und abzufragen, da
+  es vorab aggregierte Zahlen statt roher Texte sind. Am besten geeignet für Dashboards der Art
+  „ist das System gerade gesund / wie hat sich das entwickelt“ und für Alarm-Schwellenwerte.
+  **Das ergänzt dieser Slice.**
+- **Logs** – einzelne, mit Zeitstempel versehene, beliebig detaillierte Ereignisprotokolle. Am
+  besten geeignet für „was genau ist bei dieser einen Anfrage passiert“. Zentral zu sammeln und zu
+  durchsuchen wird bei wachsendem Volumen teuer, da an einer Logzeile nichts vorab aggregiert ist.
+  **Zurückgestellt.**
+- **Traces** – der Weg einer einzelnen Anfrage oder Transaktion über Servicegrenzen hinweg, mit
+  Zeitmessung an jeder Station. Am besten geeignet für „in welchem der N Services (und in
+  welchem Teil davon) ist bei dieser einen Operation die Zeit tatsächlich geblieben“.
+  **Zurückgestellt** – und hier bemerkenswert relevanter als bei einer typischen CRUD-App, da die
+  Buchungs-Saga fünf Services über *asynchrone* Kafka-Events durchquert (`payment-initiated` →
+  `payment-completed` → `ticket-issued` usw.) und keine einfache synchrone Aufrufkette ist.
+
+**Warum das für diese Architektur besonders wichtig ist:** Bei 6 unabhängig deploybaren Services,
+die über eine choreografierte Kafka-Saga kommunizieren (ADR-002), gibt es keinen einzelnen
+Prozess, an den man einen Debugger hängen könnte, und keine einzelne Logdatei, die die ganze
+Geschichte erzählt. Eine hängende Buchung kann von jedem der 6 Services oder vom Broker selbst
+verursacht sein. Observability-Werkzeuge ersetzen das „per SSH auf die eine Maschine und die eine
+Logdatei verfolgen“ – eine Technik, die aufhört zu funktionieren, sobald es mehr als einen
+Service gibt.
+
+### Option A: Spring Boot Admin
+Ein leichtgewichtiges Dashboard, eigens als Aufsatz auf Spring-Boot-Actuator-Endpunkte gebaut.
+
+**Stärken:**
+- Nahezu keine Einrichtung – meist Auto-Konfiguration, sobald Actuator vorhanden ist.
+- Gut genug, um zu überblicken, ob ein Service läuft, und seinen Basiszustand zu sehen.
+
+**Schwächen:**
+- Kein echter Metrik-*Speicher* – keine Historie, keine PromQL-artigen Abfragen, keine
+  Alarmierungsmöglichkeit.
+- Schwächeres Signal für ein Portfolio-Projekt: zeigt keine Vertrautheit mit dem
+  branchenüblichen Metrik-Stack, den die meisten echten Engineering-Organisationen betreiben.
+
+### Option B: Gehostetes APM (Datadog / New Relic)
+Eine kommerzielle, Cloud-gehostete Metrik- und APM-Plattform, bei der Agenten Daten nach außen
+senden.
+
+**Stärken:**
+- Sehr ausgereifte Dashboards und Alarmierung von Haus aus, minimaler Betriebsaufwand.
+
+**Schwächen:**
+- Erfordert ein externes Konto und (jenseits kostenloser Tarife) echte Kosten und schickt die
+  Daten dieses Projekts an einen Dritten – ungeeignet für ein Projekt, das komplett lokal per
+  `docker compose up` geklont und betrieben werden soll.
+- Fügt eine externe Abhängigkeit hinzu, die das Projekt sonst bewusst überall vermieden hat
+  (dieselbe Überlegung, die zu einem selbst gehosteten Kafka-Broker statt eines verwalteten
+  führte, ADR-004).
+
+### Option C: Selbst gehostetes Prometheus + Grafana, gespeist von Spring Boot Actuator + Micrometer
+Actuator stellt die Management-Endpunkte bereit; Micrometer (die herstellerneutrale
+Metrik-Fassade des JVM-Ökosystems – dieselbe architektonische Rolle wie SLF4J beim Logging)
+instrumentiert HTTP-Anfragen, JVM-Speicher, CPU und Connection-Pools ohne Codeänderungen
+automatisch; der Adapter `micrometer-registry-prometheus` formatiert diese Daten so, wie
+Prometheus sie erwartet, unter `/actuator/prometheus`. Prometheus selbst holt (scrapt) diesen
+Endpunkt jedes Services in einem Intervall und speichert ihn als Zeitreihen; Grafana fragt
+Prometheus ab und stellt es dar.
+
+**Stärken:**
+- Prometheus + Grafana ist die De-facto-Standardkombination für genau diese Art von
+  serviceorientierter Architektur – pullbasiertes Scraping passt natürlich zur statischen
+  Topologie mit bekannten Ports in docker-compose, ohne Push-/Agenten-Infrastruktur.
+- Kostenlos, selbst hostbar, kein externes Konto – konsistent mit der bisherigen Haltung des
+  Projekts „alles läuft per docker-compose, keine externe Cloud-Abhängigkeit“.
+- Da Micrometer herstellerneutral ist, ist der Instrumentierungscode selbst nicht an Prometheus
+  gekoppelt – ein künftiges Exportziel würde nur die Registry-Abhängigkeit ändern, keinen
+  Anwendungscode.
+- Ein Grafana-Dashboard ist ein weit stärkeres, konkreteres Demo-/Portfolio-Artefakt als eine
+  Spring-Boot-Admin-Gesundheitsseite oder eine Ad-hoc-PromQL-Abfrage in Prometheus' eigener
+  Browser-Oberfläche.
+
+**Schwächen:**
+- Mehr bewegliche Teile als Option A (zwei neue Container statt keinem) für diesen ersten Slice.
+- Selbst gehostet bedeutet keine eingebaute Zustellung von Alarmen (Slack/PagerDuty usw.) ohne
+  zusätzlichen Alertmanager – noch nicht nötig, da es keine Rufbereitschaft zu alarmieren gibt.
+
+---
+
+## Entscheidung
+
+Wir führen **Option C** ein – Spring Boot Actuator + Micrometer (`micrometer-registry-prometheus`)
+in allen 6 Services, gescrapt von einem selbst gehosteten Prometheus, visualisiert in einem selbst
+gehosteten Grafana, beide in `docker/docker-compose.yml` ergänzt.
+
+Dieser Slice umfasst **nur Metriken**. Folgendes liegt ausdrücklich außerhalb des Umfangs und ist
+als künftige Arbeit vermerkt:
+
+- **Verteiltes Tracing** (Micrometer Tracing + Zipkin, mit Trace-Kontext, der durch Kafka-Header
+  über die Saga propagiert wird) – ein eigener, größerer Slice, da die Weitergabe des
+  Trace-Kontexts über eine asynchrone Kafka-Grenze ein wesentlich anderes Problem ist als das
+  Hinzufügen einer Abhängigkeit und ein eigenes ADR verdient.
+- **Metriken auf Kafka-Broker-Ebene** (Consumer-Lag, Broker-Durchsatz) – Micrometer
+  instrumentiert nur *innerhalb* der Spring-Services; Einblick in den Broker selbst bräuchte einen
+  separaten `kafka-exporter` oder JMX-Exporter, der Kafka direkt scrapt.
+- **Zentrales Logging** (die dritte Säule – z. B. Loki/ELK plus ein Log-Shipper) – eine von
+  Metrik-Scraping getrennte Infrastruktur, am wertvollsten, sobald Tracing existiert und den
+  Logzeilen eine Korrelations-ID zum Suchen gibt.
+- **Feinabstimmung der K8s-Health-Probes** (`management.endpoint.health.probes.enabled`,
+  Liveness- vs. Readiness-Gruppen) – Actuators `/actuator/health` ist jetzt aktiv, aber die
+  Verdrahtung der Probe-Gruppen zählt erst, wenn es ein echtes K8s-Manifest gibt, das sie
+  konsumiert; das existiert noch nicht (`k8s/base` ist noch leer).
+- **Alarmierung** (Prometheus Alertmanager) – erst sinnvoll, wenn es eine Basislinie „normaler“
+  Metriken gibt, gegen die sich Schwellenwerte definieren lassen.
+
+---
+
+## Begründung
+
+Actuator hinzuzufügen ist nahezu risikofrei und eine harte Voraussetzung für alles Weitere, es
+gab dort also keine echte Alternative. Die eigentliche Entscheidung betraf das Metrik-Backend,
+und Prometheus + Grafana wurde gegenüber Spring Boot Admin (Option A) gewählt, weil ein
+Portfolio-Projekt mehr davon profitiert, den branchenüblichen Stack zu zeigen, als von der
+marginalen Einrichtungsersparnis; und gegenüber einem gehosteten APM (Option B), weil dies der
+etablierten Haltung des Projekts ohne externe Abhängigkeiten und vollständig lokal per
+docker-compose widersprechen würde, der jede andere Infrastrukturentscheidung in diesem Projekt
+(Kafka, Redis, Postgres, Kafdrop) bereits folgt.
+
+Den Slice auf Metriken zu beschränken, statt Tracing oder Logging gleich mitzunehmen, folgt der
+Konvention testbarer Slices des Projekts: Jeder Slice soll klein und unabhängig vorführbar sein.
+Ein funktionierendes Grafana-Dashboard mit Live-Zahlen ist für sich ein vollständiges,
+überprüfbares Ergebnis; Tracing über Kafka ist umfangreich genug, um ein eigener Checkpoint zu
+sein, statt ein halbfertiges Bündel aus drei Säulen auf einmal zu riskieren.
+
+---
+
+## Konsequenzen
+
+### Positiv
+- Alle 6 Services erhalten Metriken zu Anfragerate, Latenz, JVM und Ressourcen ohne
+  Anwendungscode-Änderungen – ausschließlich Ergänzungen bei Abhängigkeiten und Konfiguration.
+- Ein live bereitgestelltes Grafana-Dashboard wird ein konkretes, überprüfbares,
+  screenshot-fähiges Artefakt – dieselbe Messlatte „ein beobachtbares, überprüfbares Ergebnis
+  liefern“, die sich das Projekt für jeden anderen Slice setzt (laut `docs/plan.md`).
+- Legt das Micrometer-/Actuator-Fundament, auf dem der zurückgestellte Tracing-Slice direkt
+  aufbaut (Micrometer Tracing teilt dasselbe Instrumentierungsmodell).
+
+### Negativ / Abwägungen
+- Zwei neue Container (`prometheus`, `grafana`) in einem ohnehin schon aus 11 Containern
+  bestehenden docker-compose-Stack erhöhen den lokalen Ressourcenverbrauch und die Startzeit.
+- Noch kein Einblick in den Kafka-Broker selbst oder in den serviceübergreifenden Weg einer
+  einzelnen Anfrage – dieser Slice zeigt nur, *dass* etwas langsam ist, nicht *warum* über
+  Servicegrenzen hinweg. Genau diese Lücke adressiert der zurückgestellte Tracing-Slice.

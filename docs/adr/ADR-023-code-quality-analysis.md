@@ -149,3 +149,167 @@ How it is built:
 - **Feature branches aren't analyzed** on the Free plan; the OSS plan is the upgrade path.
 - **JaCoCo instruments the Testcontainers suites too.** The coverage reflects integration tests as
   well, which is intended but makes the numbers look better than unit tests alone would.
+
+---
+
+---
+
+# ADR-023: Codequalitätsanalyse mit SonarQube
+
+**Status:** Akzeptiert  
+**Datum:** 2026-10-04  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+CI (ADR-015) führt bei Push und Pull Request die Tests jedes geänderten Ziels aus: die
+Maven-Suiten der sechs Services (Unit-Tests plus Testcontainers) und die Vitest-Suite plus Build
+des Frontends. Nichts misst die Codequalität über bestandene Tests hinaus. Es gibt keine
+Coverage-Zahlen, keine statische Analyse, keine Berichte zu Duplikaten oder Code Smells und kein
+Quality Gate. Auch die eigenen Scanner von GitHub (CodeQL, Dependabot, Secret Scanning) sind aus.
+
+Der Nutzer bat um SonarQube. Übernommene Randbedingungen: **kostenfrei** und **lokal wie in der
+Cloud testbar** (ADR-015).
+
+Am 2026-10-04 geprüfte Fakten:
+
+- **Der Free-Tarif von SonarQube Cloud analysiert öffentliche Projekte ohne Begrenzung der
+  Codezeilen** (private Projekte bis 50k LOC)
+  ([Preise](https://www.sonarsource.com/products/sonarqube/cloud/new-pricing-plans/)). Das
+  Repository ist öffentlich.
+- **Im Free-Tarif umfasst die Branch-Analyse nur den Main-Branch**, und die Pull-Request-Analyse
+  nur Pull Requests in den Main-Branch
+  ([Branch-Analyse](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/branch-analysis/branch-analysis.md),
+  [Pull-Request-Analyse](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/pull-request-analysis.md)).
+  Dieses Projekt arbeitet direkt auf `master`, das ist also keine Einschränkung.
+- **Der OSS-Tarif** (seit 2026-01-27) ergänzt Feature-Branch-Analyse und Pro-Funktionen. Er
+  erfordert ein **öffentliches, OSI-lizenziertes Repository und eine Bewerbung**
+  ([Ankündigung](https://community.sonarsource.com/t/introducing-the-new-free-oss-plan-in-sonarqube-cloud/176923)).
+  **Das Repository hat keine Lizenzdatei.**
+- **Die automatische Analyse**, bei der SonarQube Cloud das Repository ohne CI-Schritt liest,
+  unterstützt weder Monorepos noch Coverage
+  ([Automatische Analyse](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/automatic-analysis)).
+  Coverage und ein Projekt pro Service brauchen daher **CI-basierte Analyse**.
+- **Monorepo-Unterstützung:** Mehrere SonarQube-Cloud-Projekte können an ein GitHub-Repository
+  gebunden werden, jedes mit eigenem Quality Gate
+  ([Monorepo-Unterstützung](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/monorepo-support)).
+- **Tooling-Versionen:** SonarScanner for Maven 5.8.0 (2026-09-07),
+  `SonarSource/sonarqube-scan-action` v8.3.0 (2026-09-30), JaCoCo 0.8.15 (2026-06-05, unterstützt
+  offiziell Java 26, also auch das Java 25 der Services). Das Frontend nutzt bereits Vitest 4, das
+  Coverage über `@vitest/coverage-v8` meldet.
+- **Ein selbst gehostetes SonarQube Community Build braucht mindestens 4 GB RAM, empfohlen 8 GB**,
+  plus `vm.max_map_count=524288` für sein Elasticsearch
+  ([Host-Anforderungen](https://docs.sonarsource.com/sonarqube-community-build/server-installation/server-host-requirements)).
+  Die WSL-VM dieser Maschine ist insgesamt auf 4 GB begrenzt, es kann dort also nicht laufen. Die
+  Prod-VM hat etwa 8 GB frei.
+
+## Betrachtete Optionen
+
+### Wo die Analyse läuft
+
+| Option | Vorteile | Nachteile |
+|---|---|---|
+| **A. SonarQube Cloud, Free-Tarif** | Kein Server zu betreiben. Unbegrenzt für öffentliche Projekte. Main-Branch-Analyse und Quality Gate. Pull Requests in `master` werden dekoriert. | Ein Konto bei einem Dritten und ein `SONAR_TOKEN`-Secret. Keine Analyse von Feature-Branches. |
+| **B. SonarQube Cloud, OSS-Tarif** | Wie A, plus Feature-Branch-Analyse und Pro-Funktionen. | Braucht eine OSI-Lizenz im Repository (eine eigene Entscheidung) und eine Bewerbung. Nichts, was wir nutzen, braucht heute die zusätzlichen Funktionen. |
+| **C. Selbst gehostetes Community Build auf der Prod-VM** | Volle Kontrolle, kein externes Konto. | 4–8 GB RAM neben der App auf der VM, Elasticsearch-Tuning, ein weiterer öffentlicher Endpunkt, der abgesichert und gesichert werden muss. Das Community Build analysiert ebenfalls nur den Main-Branch. |
+| **D. Nur GitHub CodeQL** | Eingebaut, kostenlos für öffentliche Repositories, starke Sicherheitsanalyse. | Nur Sicherheit: keine Coverage, Duplikate, Code Smells oder Wartbarkeitsbewertung. Nicht das, worum gebeten wurde. Es ergänzt Sonar, statt es zu ersetzen. |
+
+### Wie der Code in Projekte aufgeteilt wird
+
+| Option | Vorteile | Nachteile |
+|---|---|---|
+| **1. Sieben Projekte** (sechs Services + Frontend), als Monorepo ans Repo gebunden | Passt zu den unabhängig deploybaren Services und zur CI-Matrix. Jeder Job analysiert, was er gerade getestet hat, mit eigenem Quality Gate und eigener Coverage. | Sieben Projekte, die einmal angelegt werden müssen. |
+| **2. Ein kombiniertes Projekt** | Ein Dashboard. | Die Services haben kein Parent-POM, eine Analyse bräuchte also ein eigenes Multi-Modul-Setup. CI mit geänderten Zielen würde Teilcode in ein Projekt analysieren. |
+
+### Was ein fehlgeschlagenes Quality Gate bewirkt
+
+| Option | Vorteile | Nachteile |
+|---|---|---|
+| **Den CI-Job scheitern lassen** (`sonar.qualitygate.wait=true`) | Ein echtes Gate: neue Issues oder niedrige Coverage bei neuem Code stoppen den Build. | Der Job wartet auf das Ergebnis von SonarQube Cloud, etwa eine Minute. |
+| **Nur berichten** | Blockiert nie. | Leicht zu ignorieren, was den Zweck verfehlt. |
+
+## Entscheidung
+
+Vom Nutzer wie vorgeschlagen angenommen.
+
+- **A, SonarQube Cloud Free**, mit **1, sieben Projekten**, als Monorepo gebunden.
+- **Upgrade-Pfad, mit dem Nutzer vereinbart:** Müssen Feature-Branches je eine Qualitätsprüfung
+  bekommen (nicht nur `master` und Pull Requests dorthin), wird auf den **OSS-Tarif (B)**
+  gewechselt. Er ist ebenfalls kostenlos, braucht aber eine OSI-Lizenzdatei im Repository (zum
+  Beispiel MIT, die Wahl liegt beim Nutzer) und eine Bewerbung bei Sonar. Die Projekte und das
+  CI-Setup bleiben wie sie sind.
+- **CI-basierte Analyse in den bestehenden Jobs.** Jeder Service-Job führt `mvn verify` mit
+  **JaCoCo** aus, dann `sonar:sonar` mit dem Projektschlüssel dieses Services. Der Frontend-Job
+  führt `ng test` mit Coverage aus (`@vitest/coverage-v8`, LCOV), dann `sonarqube-scan-action`.
+  Analysiert werden nur geänderte Ziele, dieselben, die CI ohnehin testet.
+- **Den Job bei fehlgeschlagenem Quality Gate scheitern lassen.** Das Standard-Gate „Sonar way“
+  beurteilt **neuen Code**. Bestehende Issues erscheinen stattdessen im Dashboard, statt zu
+  blockieren, aber nur, wenn die Definition von neuem Code den bestehenden Code zur Basislinie
+  macht.
+- **Definition von neuem Code „Previous version“ (Basislinie = jetzt),** mit dem Nutzer gewählt,
+  nachdem die ersten Läufe gescheitert waren. Die Projektversionen ändern sich nie, daher ist der
+  Code bei der ersten Analyse die Basislinie, und spätere Änderungen sind neuer Code. Eine
+  Versionserhöhung bei einem Release würde die Basislinie verschieben.
+  - **Korrektur:** Dieses ADR nahm zunächst an, das Gate würde die erste Analyse nicht blockieren,
+    und das Runbook empfahl „Number of days: 30“. In dieser jungen Codebasis hatte sich innerhalb
+    von 30 Tagen fast jede Zeile geändert, sodass alle sieben Gates bei der ersten Analyse
+    scheiterten.
+  - Die Doku von SonarQube Cloud sagt nicht, was „Previous version“ tut, wenn sich die Version nie
+    ändert. Dass die erste Analyse die Basislinie ist, bestätigte
+    [Run 37224299777](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37224299777):
+    Alle sieben Gates bestanden (`docs/plan.md`).
+- **Die Analyse überspringen, wenn `SONAR_TOKEN` fehlt**, zum Beispiel bei Pull Requests aus
+  Forks, die keine Secrets erhalten. Tests laufen weiterhin.
+- **Lokale Parität (ADR-015):** `ci.js` führt dasselbe `mvn verify`/`ng test` mit Coverage aus, die
+  Coverage-Berichte lassen sich also lokal prüfen. Der Upload zu SonarQube Cloud geschieht nur in
+  CI, lokale Läufe fügen der Historie des Main-Branches also nichts hinzu. In der IDE kann das
+  kostenlose Plugin SonarQube for IDE dieselben Regeln beim Bearbeiten anzeigen (optional,
+  Connected Mode).
+- **Außerhalb des Umfangs, mögliche kleine Folgeschritte:** CodeQL, Dependabot und Secret Scanning
+  (Repository-Einstellungen plus eine Konfigurationsdatei) sowie eine Lizenzdatei.
+
+**Schritte des Nutzers** (Konten können nicht für den Nutzer angelegt werden):
+1. Bei SonarQube Cloud mit GitHub anmelden und eine Organisation für `comicNerd23` anlegen
+   (Free-Tarif).
+2. `eventTicketingSystem` als Monorepo mit den sieben Projektschlüsseln aus der Umsetzung
+   importieren und die automatische Analyse ausschalten.
+3. Einen Token erstellen und als Repository-Secret `SONAR_TOKEN` hinterlegen.
+
+Wie es gebaut ist:
+- **Jedes Service-POM** führt JaCoCo 0.8.15 aus: `prepare-agent`, dann `report` in `verify`, was
+  `target/site/jacoco/jacoco.xml` schreibt. Der Sonar-Scanner findet es unter diesem Standardpfad.
+- **Das Frontend** führt `ng test --coverage` mit `@vitest/coverage-v8` 4.1.11 aus, auf das
+  installierte Vitest festgelegt. Es schreibt `coverage/frontend/lcov.info`.
+  `frontend/sonar-project.properties` deklariert die Quellen, die Tests (`*.spec.ts`) und den
+  LCOV-Pfad.
+- **`ci.js --sonar`** läuft nach den Tests. Für Services ruft es den festgelegten SonarScanner for
+  Maven 5.8.0.7211 auf; für das Frontend den festgelegten npm-Scanner `@sonar/scan` 5.0.1. Jeder
+  Aufruf erhält den Host, die Organisation, den Schlüssel `<organization>_<target>` und
+  `sonar.qualitygate.wait=true`. Die Scanner lesen den Token selbst aus `SONAR_TOKEN`, er erscheint
+  also nie in einer Kommandozeile. Ohne den Token oder `SONAR_ORGANIZATION` gibt der Schritt aus,
+  dass er übersprungen wird.
+- **`ci.yml`** übergibt `--sonar`, das Secret und die Variable an die Service- und Frontend-Jobs
+  und checkt die vollständige Historie aus (`fetch-depth: 0`). SonarQube braucht sie, um neuen von
+  altem Code zu unterscheiden.
+- Die einmalige Einrichtung durch den Nutzer steht in `docs/runbooks/sonarqube-cloud.md`.
+
+## Konsequenzen
+
+**Positiv**
+- Jede Änderung an `master` wird auf Bugs, Schwachstellen, Code Smells, Duplikate und Coverage
+  geprüft, mit einem Gate auf neuen Code. Pull Requests in `master` erhalten das Ergebnis ebenfalls.
+- Zum ersten Mal gibt es Coverage-Zahlen, auch lokal (HTML-Berichte von JaCoCo und V8).
+- Keine Kosten, kein Server, nichts auf der VM oder dieser Maschine zu betreiben.
+
+**Negativ / akzeptiert**
+- **Ein Konto bei einem Dritten und ein Token.** Ist SonarQube Cloud down, lässt der
+  `--sonar`-Schritt den Job scheitern. Die Abhilfe ist, ihn erneut auszuführen oder das Secret zu
+  entfernen, um die Analyse vorübergehend zu überspringen.
+- **Jeder analysierte Job dauert länger:** der Scanner, plus bis zu etwa eine Minute Warten auf das
+  Gate.
+- **Feature-Branches werden im Free-Tarif nicht analysiert;** der OSS-Tarif ist der Upgrade-Pfad.
+- **JaCoCo instrumentiert auch die Testcontainers-Suiten.** Die Coverage spiegelt auch
+  Integrationstests wider, was beabsichtigt ist, die Zahlen aber besser aussehen lässt, als Unit-Tests
+  allein es täten.

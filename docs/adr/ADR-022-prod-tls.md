@@ -174,3 +174,195 @@ add, and why it is deferred here:
   cluster. Locally, the `selfsigned` issuer checks the cert-manager install, the Ingress wiring,
   the redirect and the deploy script.
 - **Inside the cluster, traffic stays plain HTTP** (see the enterprise table).
+
+---
+
+---
+
+# ADR-022: TLS für Prod
+
+**Status:** Akzeptiert  
+**Datum:** 2026-10-04  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+Slice (e3) brachte Prod auf die Oracle-A1-VM, erreichbar als einfaches HTTP auf ihrer öffentlichen
+IP (ADR-021). Der Browser markiert die Seite als „Nicht sicher“, und jede Anfrage, einschließlich
+des Sitzstatus-WebSockets, durchquert das Internet im Klartext. Dieser Slice ergänzt HTTPS zwischen
+Browser und VM.
+
+**Umfang:** TLS endet am Ingress-Controller von k3s (Traefik). Der Traffic innerhalb des Clusters
+bleibt einfaches HTTP: Er verlässt die einzelne VM nie. Der Deploy-Pfad ist bereits verschlüsselt
+(SSH-Tunnel, das eigene TLS der k3s-API, GHCR über HTTPS).
+
+Übernommene Randbedingungen: Es muss **kostenfrei** bleiben und auf der VM testbar sein. Dev (kind,
+Rancher Desktop, Compose) bleibt bei HTTP.
+
+Am 2026-10-04 geprüfte Fakten:
+
+- **Let's Encrypt stellt seit 2026-01-15 Zertifikate für IP-Adressen aus.** Sie müssen das Profil
+  `shortlived` nutzen und sind **160 Stunden gültig, knapp über sechs Tage**
+  ([Let's Encrypt](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability)). Nur
+  HTTP-01 und TLS-ALPN-01 können eine IP validieren, nicht DNS-01.
+- **sslip.io und nip.io sind jetzt ein Dienst** (sslip.io leitet auf nip.io weiter). Ein Name wie
+  `92-5-64-140.sslip.io` löst zu dieser IP auf, geprüft mit `nslookup`. Let's Encrypt hat das
+  Ratenlimit der Domain auf 250.000 Zertifikate erhöht, und der Dienst läuft seit über zehn Jahren
+  ([nip.io](https://nip.io/)). Das Ratenlimit teilen sich weiterhin alle Nutzer, da keine der
+  beiden Domains auf der Public Suffix List steht (in der Liste selbst geprüft). Wird es erreicht,
+  ist die andere Domain oder ein IP-Zertifikat der Fallback.
+- **DuckDNS steht auf der Public Suffix List**, sodass jede Subdomain ihr eigenes Ratenlimit hat.
+  Es braucht ein Konto und einen Token, und die IP muss aktuell gehalten werden.
+- **k3s `v1.36.4+k3s1` liefert Traefik 3.7.8 mit** (geprüft in `manifests/traefik.yaml` von k3s).
+  Traefiks eingebauter ACME-Client unterstützt eine `profile`-Einstellung. Erneuerungen ignorierten
+  das Profil bis [traefik#12467](https://github.com/traefik/traefik/pull/12467), am 2026-01-05 in
+  v3.6 gemergt, daher enthält 3.7.8 den Fix. IPv4-IP-Zertifikate in Traefik wurden von Nutzern erst
+  im März 2026 als funktionierend gemeldet
+  ([Traefik-Forum](https://community.traefik.io/t/almost-able-to-use-letsencrypts-new-shortlived-ip-acme-tls-certs/27913)).
+- **Traefiks ACME-Client funktioniert nur mit einem Traefik-Replikat.** Er speichert Konto und
+  Zertifikate in einer Datei (`acme.json`), die auf einem persistenten Volume liegen muss
+  ([Traefik-Doku](https://doc.traefik.io/traefik/reference/install-configuration/tls/certificate-resolvers/acme/)).
+  k3s betreibt ein Replikat.
+- **cert-manager** ist bei v1.21.2 (2026-09-11), mit arm64-Images. Sein ACME-Issuer hat seit v1.18
+  ein `profile`-Feld ([cert-manager-Doku](https://cert-manager.io/docs/configuration/acme/)). Er
+  speichert Zertifikate als Kubernetes-Secrets und funktioniert mit jedem Ingress-Controller.
+- **Das Frontend braucht keine Änderung.** Es baut die WebSocket-URL aus dem Protokoll der Seite,
+  HTTPS ergibt also automatisch `wss://`.
+
+## Betrachtete Optionen
+
+### Name auf dem Zertifikat
+
+| Option | Vorteile | Nachteile |
+|---|---|---|
+| **A. IP-Zertifikat** (`https://92.5.64.140`) | Kein Dritter für den Namen. | Sechs-Tage-Zertifikate: Eine fehlgeschlagene Erneuerung legt die Seite innerhalb von Tagen lahm. Ingress-`host`-Regeln können keine IP aufnehmen, daher braucht es Traefik-spezifische Konfiguration. Der neueste und am wenigsten erprobte Weg. |
+| **B. sslip.io-Name** (`https://92-5-64-140.sslip.io`) | Kein Konto, keine Kosten. Normales 90-Tage-Zertifikat, bei Erneuerungsproblemen bleiben also etwa 30 Tage zum Reagieren. Eine einfache `host`-Regel im Ingress. | Hängt von einem kostenlosen DNS-Dienst eines Dritten ab. Geteiltes Ratenlimit. Der Name wirkt technisch. |
+| **C. DuckDNS** (`https://<name>.duckdns.org`) | Ein lesbarer Name. Eigenes Ratenlimit. | Braucht ein Konto und einen Token als zusätzliches Secret. Ein weiterer Dienst, der laufen muss. |
+| **D. Eigene Domain** | Der schönste Name, volle Kontrolle. | Kostet jedes Jahr Geld. **Durch die Kostenvorgabe ausgeschlossen.** |
+
+Alle Optionen binden den Namen an die IP der VM: Eine neue IP bedeutet ein neues Zertifikat (A, B)
+oder ein DNS-Update (C).
+
+### Wer das Zertifikat bekommt
+
+| Option | Vorteile | Nachteile |
+|---|---|---|
+| **1. Traefiks eingebauter ACME-Client** | Nichts Neues zu installieren; konfiguriert über eine k3s-`HelmChartConfig`. | Traefik-spezifisch: Der Prod-Ingress bekommt Traefik-Annotationen. `acme.json` braucht ein persistentes Volume, und Berechtigungsfehler dabei sind häufig. Zertifikate sind nicht als Kubernetes-Objekte sichtbar. |
+| **2. cert-manager** | Der Standardweg in Kubernetes. Zertifikate sind Secrets, ihr Zustand ist sichtbar (`kubectl get certificate`). Controller-neutral, Standard-`tls:`-Abschnitt im Ingress. | Drei weitere Pods (Controller, Webhook, Cainjector) und CRDs, die installiert und aktualisiert werden müssen. |
+
+Der Challenge-Typ ist in jedem Fall **HTTP-01**: Port 80 ist bereits offen, und DNS-01 funktioniert
+weder für sslip.io noch für IP-Zertifikate.
+
+## Entscheidung
+
+Mit dem Nutzer gewählt: **B, ein sslip.io-Name, und 2, cert-manager.**
+
+- **sslip.io** liefert `https://<IP mit Bindestrichen>.sslip.io` mit dem normalen 90-Tage-Zertifikat
+  von Let's Encrypt. Es braucht kein Konto und kein Secret und lässt unter den kostenlosen Optionen
+  die meiste Zeit, um eine fehlgeschlagene Erneuerung zu beheben. Das IP-Zertifikat (A) ist der
+  Fallback, falls sslip.io wegfällt, und nip.io der Fallback, falls sein geteiltes Ratenlimit
+  erreicht wird.
+- **cert-manager v1.21.2** hält den Ingress Controller-neutral (ADR-018) und ist das Werkzeug, das
+  ein Enterprise-Plattform-Team betreiben würde (siehe unten). Seine drei Pods passen auf die VM,
+  die zuvor 3,4 von 11,6 GB belegte.
+- **HTTP-01** über Traefik. Port 80 bleibt dafür offen.
+
+Wie es gebaut ist:
+- **`deploy-prod.js` installiert cert-manager** bei jedem Deployment aus dem offiziellen statischen
+  Manifest mit festgelegter Version **und dessen sha256**: Ein Manifest, das nicht passt, wird nie
+  angewendet. Das Deployment wartet auf die drei Deployments von cert-manager und wendet dann das
+  Overlay an, mit einigen Wiederholungen, während der Webhook hochkommt. Die Alternative war eine
+  einmalige Installation in `setup-k3s.sh`; so ist ein Upgrade ein reviewter Commit, und eine neue
+  VM braucht keinen zusätzlichen Schritt.
+- **`k8s/overlays/prod`** fügt drei `ClusterIssuer` hinzu (`letsencrypt-staging`,
+  `letsencrypt-prod`, `selfsigned` für lokale Cluster), eine Host-Regel und einen `tls:`-Abschnitt
+  am Ingress sowie die Annotation `cert-manager.io/cluster-issuer`. Das ACME-Konto hat keine
+  E-Mail-Adresse: Let's Encrypt hat den Versand von Ablaufmails am 2025-06-04 eingestellt
+  ([Let's Encrypt](https://letsencrypt.org/2025/06/26/expiration-notification-service-has-ended)).
+- **Host und Issuer werden zur Deploy-Zeit gesetzt**, wie das Image-Tag: Der Host kommt aus
+  `--base-url` (die Variable `PROD_BASE_URL`), der Issuer aus `--tls-issuer`, einer
+  Auswahleingabe des Deploy-Workflows. Die IP der VM bleibt aus dem Repository heraus.
+  `deploy-prod.js` lehnt `http://` und nackte IPs ab.
+- **Zuerst Staging.** Nach jeder Änderung am TLS-Setup läuft das Deployment mit
+  `letsencrypt-staging`, dann mit `letsencrypt-prod`.
+- **Das Deployment wartet auf das richtige Zertifikat.** Es verlangt `Ready=True` und dass die
+  Annotation `cert-manager.io/issuer-name` des Secrets den gewählten Issuer nennt. Nach einem
+  Issuer-Wechsel markiert cert-manager das alte Zertifikat als `Ready=False` (`IncorrectIssuer`),
+  aber erst, wenn sein Controller reagiert hat, daher könnte `Ready` allein zu früh durchgehen.
+  Dann gibt das Deployment den Issuer und das Ablaufdatum des ausgelieferten Zertifikats aus. Mit
+  `letsencrypt-prod` scheitert es, wenn Node dem Zertifikat nicht vertraut.
+- **Eine fehlgeschlagene Ausstellung stoppt das Deployment sofort.** cert-manager wiederholt eine
+  fehlgeschlagene Anfrage erst nach einem Backoff von etwa einer Stunde, Warten ist also sinnlos.
+  Nach einer Karenzzeit von 30 Sekunden stoppt das Deployment bei `Issuing=False/Failed` und gibt
+  den Grund aus den Conditions des Certificate sowie der ACME-Order und -Challenges aus, z. B. den
+  Fehler von Let's Encrypt. Ein Issuer-Wechsel startet trotz Backoff sofort einen neuen Versuch
+  (auf Rancher Desktop getestet).
+- **HTTP → HTTPS** mit einer Traefik-`Middleware` nur am Ingress der App. Das ist
+  Traefik-spezifisch, aber nur im Prod-Overlay, wo k3s Traefik mitliefert. Der Solver-Ingress von
+  cert-manager hat eine längere Pfadregel, die Traefik bevorzugt, sodass Challenges über einfaches
+  HTTP beantwortet werden. Let's Encrypt würde zudem einer Weiterleitung auf HTTPS folgen, ohne
+  dieses Zertifikat zu validieren
+  ([Community-Antwort](https://community.letsencrypt.org/t/http-domain-verification-with-redirect/130449)),
+  beides funktioniert also.
+- **Der Smoke-Check läuft über HTTPS** und prüft, dass `http://<host>/api/events` eine permanente
+  Weiterleitung auf die HTTPS-URL liefert. Bei Staging- oder selbstsignierten Zertifikaten wird die
+  Zertifikatsprüfung nur für den Smoke-Check abgeschaltet.
+
+## Was ein Enterprise-Setup ergänzen würde
+
+Dieses Setup ist eine kostenfreie Ein-VM-Version dessen, was größere Unternehmen betreiben. Was sie
+typischerweise ergänzen, und warum es hier zurückgestellt ist:
+
+| Enterprise-Praxis | Was es ist | Warum zurückgestellt |
+|---|---|---|
+| **Eigene Domain, DNS-01** | Eine registrierte Domain mit DNS hinter einer API (Route 53, Azure DNS, Cloudflare). DNS-01 beweist die Kontrolle über einen TXT-Eintrag und erlaubt Wildcard-Zertifikate und Zertifikate für interne Services. | Eine Domain kostet jedes Jahr Geld. Ein späterer Wechsel ändert nur den Ingress-Host und den Solver des Issuers. |
+| **TLS am Rand** | Ein CDN, WAF oder Cloud-Load-Balancer (Cloudflare, AWS ALB/CloudFront, Azure Front Door) beendet TLS, oft mit plattformverwalteten Zertifikaten wie AWS Certificate Manager. | In diesem Maßstab nicht kostenlos, und eine VM hat keinen Load-Balancer. Traefik auf der VM übernimmt diese Rolle. |
+| **mTLS zwischen Services** | Ein Service Mesh (Istio, Linkerd) gibt jedem Pod ein kurzlebiges Identitätszertifikat, sodass sich Services gegenseitig authentifizieren („Zero Trust“). Datenbanken und Kafka nutzen ebenfalls TLS. | Der Traffic verlässt die einzelne VM nie, und ein Mesh fügt mehrere Komponenten hinzu. Es ist die größte Lücke im Vergleich zu einem Enterprise-Setup. |
+| **Private PKI** | Eine interne CA (HashiCorp Vault PKI, AWS Private CA, Microsoft AD CS) für Zertifikate, denen nur innerhalb des Unternehmens vertraut werden muss. | Noch braucht nichts Internes Zertifikate. cert-manager hat Issuer für diese CAs. |
+| **Verwaltung des Zertifikats-Lebenszyklus** | Ein zentrales Inventar, Richtlinienumsetzung und Ablaufwarnungen (Venafi/CyberArk, Keyfactor). Schlüssel liegen in HSMs oder einem Cloud-KMS. | Ein Zertifikat. Das Deployment gibt sein Ablaufdatum aus, und eine geplante Ablaufprüfung ist ein möglicher Folgeschritt. |
+| **Kurze Laufzeiten, volle Automatisierung** | Die Abstimmung SC-081v3 des CA/Browser Forums senkt die maximale Laufzeit öffentlicher Zertifikate auf 200 Tage ab 2026-03-15, 100 Tage ab 2027-03-15 und **47 Tage ab 2029-03-15** ([Zusammenfassung](https://www.appviewx.com/blogs/its-official-ca-b-forum-votes-yes-to-47-day-tls-certificates/)). Manuelle Erneuerung ist nicht mehr praktikabel. | Bereits abgedeckt: cert-manager erneuert selbstständig. |
+
+## Verifikation
+
+- **Lokal auf Rancher Desktop** mit dem Issuer `selfsigned`: die cert-manager-Installation, die
+  TLS-Verdrahtung des Ingress, die Weiterleitung, ein wiederholtes Deployment ohne Neuausstellung
+  und ein fehlschlagender `letsencrypt-staging`-Lauf, der früh stoppt und den Grund von Let's
+  Encrypt ausgibt.
+- **Auf der VM am 2026-10-04,** mit Release `sha-8b82a63`:
+  - Staging, [Run 37212540349](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37212540349),
+    dann Prod, [Run 37212908972](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37212908972).
+    Beide waren grün.
+  - HTTP-01 bestand neben der Weiterleitung beim ersten Versuch.
+  - Das Prod-Zertifikat wurde von Let's Encrypt `YR2` ausgestellt, ist bis 2027-01-02 gültig und
+    wird von Node und von curl ohne `-k` als vertrauenswürdig akzeptiert.
+  - Der WebSocket funktioniert über `wss://`.
+  - Die nackte IP liefert nun 404.
+- Details stehen in `docs/plan.md`.
+
+## Konsequenzen
+
+**Positiv**
+- Der Browser zeigt ein vertrauenswürdiges Zertifikat, und REST sowie der Sitzstatus-WebSocket
+  (`wss://`) sind zwischen Browser und VM verschlüsselt.
+- Es wurden kein Konto, kein Secret und keine Kosten hinzugefügt. Das Zertifikat erneuert sich
+  selbstständig.
+- Der Ingress bleibt Standard-Kubernetes. Nur die Weiterleitung ist Traefik-spezifisch, und nur in
+  Prod.
+- Version und Manifest von cert-manager sind festgelegt und geprüft, ein Upgrade ist also ein
+  reviewter Commit.
+
+**Negativ / akzeptiert**
+- **sslip.io ist eine Abhängigkeit von einem Dritten ohne SLA.** Löst es nicht mehr auf, ist die
+  Seite per Namen nicht erreichbar. Die Fallbacks sind nip.io und ein IP-Zertifikat.
+- **Der Name enthält die IP.** Eine neue IP bedeutet einen neuen Namen und ein neues Zertifikat
+  (Notizen im Runbook).
+- **`http://<IP>` liefert die App nicht mehr aus**, da der Ingress nun nur noch für seinen Host
+  antwortet.
+- **Jedes Deployment lädt das cert-manager-Manifest von GitHub herunter.** Das Deployment hängt
+  bereits von GitHub ab (Actions, GHCR), und die Prüfsumme schützt den Inhalt.
+- **Der Großteil des TLS-Pfads lässt sich nur auf der VM testen.** Let's Encrypt kann einen lokalen
+  Cluster nicht erreichen. Lokal prüft der Issuer `selfsigned` die cert-manager-Installation, die
+  Ingress-Verdrahtung, die Weiterleitung und das Deploy-Skript.
+- **Innerhalb des Clusters bleibt der Traffic einfaches HTTP** (siehe die Enterprise-Tabelle).

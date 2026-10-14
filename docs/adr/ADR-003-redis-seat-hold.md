@@ -97,3 +97,113 @@ to release the Redis key immediately (rather than waiting for TTL).
 - The seat status in PostgreSQL (`HELD`) and the Redis lock can briefly diverge if a
   crash occurs between the Redis SET and the PostgreSQL INSERT. A scheduled reconciliation
   job (runs every 5 minutes) clears PostgreSQL HELD records whose Redis key no longer exists.
+
+---
+
+---
+
+# ADR-003: Redis SETNX + TTL für die Sitzreservierung
+
+**Status:** Akzeptiert  
+**Datum:** 2024-01-01  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+Die Ticketing-Plattform muss verhindern, dass zwei Nutzer gleichzeitig denselben Sitzplatz
+buchen (das klassische „Double-Booking“-Problem). Bei hoher Nachfrage (beliebte Konzerte)
+können Hunderte Nutzer innerhalb weniger Millisekunden versuchen, denselben Platz zu
+reservieren.
+
+Drei Ansätze für den Reservierungsmechanismus wurden bewertet:
+
+### Option A: Optimistisches Locking in PostgreSQL
+Eine `version`-Spalte wird zur Sitzzeile hinzugefügt. Die Version wird gelesen, dann wird
+ein Update mit `version = <gelesene_version>` versucht. Hat eine andere Transaktion zuerst
+aktualisiert, schlägt das Update fehl und der Client wiederholt den Versuch.
+
+**Vorteile:** Einfach, keine zusätzliche Infrastruktur.  
+**Nachteile:** Bei starker Konkurrenz scheitern viele Transaktionen und wiederholen
+gleichzeitig – eine „Thundering Herd“ von Wiederholungen, die die Datenbankleistung
+weiter verschlechtert.
+
+### Option B: Pessimistisches Locking in PostgreSQL (`SELECT FOR UPDATE`)
+Die Sitzzeile wird beim Lesen gesperrt, sodass keine andere Transaktion sie lesen oder
+schreiben kann, bis die Sperre aufgehoben wird.
+
+**Vorteile:** Garantierte Exklusivität, einfache Logik.  
+**Nachteile:** Zeilensperren blockieren alle gleichzeitigen Leser. Ein Sitzplan mit 500
+Plätzen, den 10.000 Nutzer gleichzeitig ansehen, verursacht starke Lock-Konkurrenz.
+PostgreSQL ist für dieses Zugriffsmuster nicht ausgelegt.
+
+### Option C: Verteilter Redis-Lock (SETNX + TTL)
+Mit Redis `SET key value NX PX <Millisekunden>` wird ein Schlüssel atomar gesetzt, falls er
+nicht existiert, mit automatischem Ablauf. Der Schlüssel ist die seatId. Nur ein Aufrufer
+hat Erfolg; alle anderen erhalten sofort eine Null-Antwort (kein Blockieren).
+
+**Vorteile:**
+- Atomar: `SET NX` ist ein einzelner Redis-Befehl, O(1), ohne Race Condition.
+- Nicht blockierend: Erfolglose Aufrufer scheitern schnell, statt zu warten.
+- Selbstreinigend: Die TTL (10 Minuten) gibt die Reservierung automatisch frei – ohne
+  Aufräumcode oder geplanten Job.
+- Im Arbeitsspeicher: Latenz unter einer Millisekunde gegenüber ca. 1–5 ms bei einem
+  PostgreSQL-Schreibvorgang.
+
+**Nachteile:**
+- Redis ist eine zusätzliche Infrastrukturabhängigkeit.
+- Redis ist standardmäßig kein dauerhafter Speicher. Stürzt Redis ab, bevor die Reservierung
+  in PostgreSQL festgeschrieben wurde, geht sie verloren. (Akzeptabel: Der Platz wird
+  einfach wieder frei und der Nutzer wird gebeten, es erneut zu versuchen – keine
+  Datenkorruption.)
+
+---
+
+## Entscheidung
+
+Wir führen **Redis SETNX + TTL** für Sitzreservierungen ein.
+
+---
+
+## Umsetzungsdetails
+
+**Redis-Schlüsselformat:** `seat-hold:{seatId}`  
+**Redis-Wert:** JSON `{ "bookingId": "...", "userId": "...", "heldAt": "..." }`  
+**TTL:** 600.000 ms (10 Minuten)
+
+**Ablauf der Reservierung:**
+```
+SET seat-hold:{seatId} {json} NX PX 600000
+→ OK   : Reservierung erhalten, HELD-Buchungsdatensatz in PostgreSQL anlegen
+→ null : Platz bereits reserviert, HTTP 409 Conflict zurückgeben
+```
+
+**Erkennung des Ablaufs:**  
+Redis-Keyspace-Benachrichtigungen sind aktiviert (`notify-keyspace-events KEA`).
+`booking-service` abonniert `__keyevent@0__:expired` und veröffentlicht ein
+`seat-hold-expired`-Kafka-Event, wenn die TTL einer Reservierung abläuft.
+
+**Explizite Freigabe:**  
+Wird eine Reservierung bestätigt oder storniert, ruft `booking-service` `DEL seat-hold:{seatId}`
+auf, um den Redis-Schlüssel sofort freizugeben (statt auf die TTL zu warten).
+
+---
+
+## Konsequenzen
+
+### Positiv
+- Bewältigt Parallelität im Ticketmaster-Maßstab ohne Leistungseinbruch der Datenbank.
+- Der 10-Minuten-Countdown in der UI ist schlicht die Redis-TTL – keine zusätzliche
+  Timer-Infrastruktur nötig.
+- Die nicht blockierende Fehlerantwort (HTTP 409) erlaubt dem Frontend, sofort
+  „Platz vergeben – bitte anderen wählen“ anzuzeigen.
+
+### Negativ / Abwägungen
+- Fällt Redis während des Checkouts aus, gehen laufende Reservierungen verloren.
+  Gegenmaßnahme: Redis-Persistenz (AOF) ist in Produktion aktiviert. Das Risiko ist
+  angesichts des nicht finanziellen Charakters einer Reservierung akzeptabel.
+- Der Sitzstatus in PostgreSQL (`HELD`) und der Redis-Lock können kurzzeitig auseinanderlaufen,
+  wenn zwischen dem Redis-SET und dem PostgreSQL-INSERT ein Absturz auftritt. Ein geplanter
+  Abgleichjob (alle 5 Minuten) löscht PostgreSQL-HELD-Datensätze, deren Redis-Schlüssel
+  nicht mehr existiert.

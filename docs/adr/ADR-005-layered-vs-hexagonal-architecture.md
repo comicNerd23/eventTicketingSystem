@@ -211,3 +211,228 @@ selection algorithm — that service can be migrated to hexagonal independently.
 microservice boundary means this migration is contained and does not affect other services.
 The AsyncAPI and OpenAPI contracts remain unchanged; only the internal structure of the
 service evolves.
+
+---
+
+---
+
+# ADR-005: Interne Service-Struktur – Schichtenarchitektur statt Hexagonal
+
+**Status:** Akzeptiert  
+**Datum:** 2026-07-26  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+Jeder Microservice braucht eine interne Codestruktur – Regeln dafür, wie Packages
+organisiert werden und welche Teile des Codes welche anderen aufrufen dürfen.
+
+Drei Muster wurden ernsthaft bewertet:
+
+---
+
+### Option A: Schichtenarchitektur (unsere Wahl)
+
+Die Anwendung ist in horizontale Schichten unterteilt, die jeweils auf der darunterliegenden
+aufsetzen. Abhängigkeiten verlaufen nur nach unten. Obere Schichten kennen untere Schichten;
+untere Schichten kennen die oberen nie.
+
+```
+┌─────────────────────────────────────┐
+│  Controller (HTTP rein / HTTP raus) │  ← kennt Service
+├─────────────────────────────────────┤
+│  Service (Geschäftslogik)           │  ← kennt Repository, Kafka, Redis
+├─────────────────────────────────────┤
+│  Repository / Infrastruktur         │  ← kennt JPA, Datenbank
+└─────────────────────────────────────┘
+```
+
+In der Praxis entspricht das direkt unserer Package-Struktur:
+
+```
+com.ticketing.booking/
+├── controller/    ← HTTP-Schicht
+├── service/       ← Geschäftslogik
+├── repository/    ← Datenbankzugriff
+├── kafka/         ← Kafka-Producer und -Consumer
+├── domain/        ← JPA-Entities und Enums
+└── dto/           ← API-Formen (Request-/Response-Objekte)
+```
+
+**Vorteile:**
+- Äußerst gut verstanden. Jeder Spring-Boot-Entwickler weiß sofort, wo er für welchen
+  Code suchen muss.
+- Springs eigene Konventionen (Stereotypen wie `@Controller`, `@Service`, `@Repository`)
+  sind um dieses Muster herum entworfen. Auto-Konfiguration, Transaktionsverwaltung und
+  Dependency Injection passen von Natur aus dazu.
+- Geringer Aufwand bei kleinen bis mittleren Services. Ein neuer Endpunkt sind drei Dateien:
+  ein DTO, eine Service-Methode und eine Controller-Methode.
+
+**Nachteile:**
+- Das Domänenmodell (`Booking.java`) ist eine JPA-Entity – es trägt Framework-Annotationen
+  (`@Entity`, `@Column`) direkt am Geschäftsobjekt. Die Domäne ist damit an das
+  Persistenz-Framework gekoppelt.
+- Wächst der Service, kann das `service/`-Package zur Müllhalde werden, wenn die Disziplin
+  nicht gehalten wird.
+- Die Geschäftslogik lässt sich schwerer völlig isoliert von der Datenbank unit-testen, weil
+  die Entity DAS JPA-Objekt ist. Tests brauchen Mockito oder Testcontainers, um eine echte
+  Datenbank zu vermeiden.
+
+---
+
+### Option B: Hexagonale Architektur (Ports and Adapters)
+
+Von Alistair Cockburn vorgeschlagen. Die Idee: Die Domäne steht im Zentrum und wird
+vollständig vor der Außenwelt (HTTP, Datenbanken, Kafka usw.) geschützt. Die Domäne definiert
+*Ports* (Interfaces, die beschreiben, was sie braucht); *Adapter* (Implementierungen) liegen
+außen und werden in diese Ports eingesteckt.
+
+```
+                ┌──────────────────────────┐
+  HTTP ─────────┤ Driving Adapter          │
+  Kafka ────────┤   (Controller, Consumer) │
+                │                          │
+                │  ┌────────────────────┐  │
+                │  │   Domäne / Kern    │  │
+                │  │  (reines Java,     │  │
+                │  │   keine Framework- │  │
+                │  │   Abhängigkeiten)  │  │
+                │  └────────────────────┘  │
+                │                          │
+                │ Driven Adapter           ├──── PostgreSQL
+                │   (Repository-Impl.,     ├──── Redis
+                │    Kafka-Publisher)      ├──── Kafka
+                └──────────────────────────┘
+```
+
+Die Package-Struktur würde so aussehen:
+
+```
+com.ticketing.booking/
+├── domain/              ← reines Java: Booking, BookingStatus, BookingRepository (Interface)
+├── application/         ← Use Cases: HoldSeatUseCase, ConfirmBookingUseCase
+├── adapter/
+│   ├── in/
+│   │   ├── http/        ← BookingController (Driving Adapter)
+│   │   └── kafka/       ← PaymentResultConsumer (Driving Adapter)
+│   └── out/
+│       ├── persistence/ ← JpaBookingRepository implementiert domain.BookingRepository
+│       ├── redis/       ← RedisSeatHoldAdapter
+│       └── kafka/       ← KafkaEventPublisher
+```
+
+Die Domänenklasse `Booking` wäre ein einfaches Java-Objekt ohne `@Entity`-Annotation. Eine
+separate JPA-Entity (`BookingJpaEntity`) bildet auf die Datenbank ab, und ein Adapter
+übersetzt zwischen beiden.
+
+**Vorteile:**
+- Die Domäne ist vollständig von allen Frameworks isoliert. `ConfirmBookingUseCase` lässt
+  sich ohne Spring-Kontext, ohne Mockito, ohne Datenbank unit-testen – nur mit `new`-Objekten.
+- Der Austausch der Infrastruktur ist theoretisch einfach: Man ersetzt den JPA-Adapter durch
+  einen MongoDB-Adapter, und die Domäne bleibt unverändert.
+- Erzwingt saubere Grenzen. Es ist strukturell unmöglich, dass Geschäftslogik versehentlich in
+  HTTP-Belange hineingreift.
+
+**Nachteile:**
+- Deutlich mehr Boilerplate. Für jedes Konzept schreibt man: das Domänenobjekt, die
+  Use-Case-Klasse, das Port-Interface, die Adapter-Implementierung und oft einen Mapper
+  zwischen Domänenobjekt und JPA-Entity. Bei einem Service wie `booking-service` mit fünf
+  Hauptoperationen ist das viel Zeremonie, bevor echte Logik geschrieben wird.
+- Spring Boot arbeitet dem Muster leicht entgegen: `@Transactional` gehört je nach Auslegung
+  an den Adapter oder den Use Case, JPA-Lazy-Loading erfordert eine verwaltete Entity, und
+  Spring Security setzt auf Adapter-Ebene an. Das richtig hinzubekommen erfordert Erfahrung
+  mit Spring und Hexagonal.
+- Die Indirektion macht den Code für Entwickler, die das Muster nicht kennen, schwerer
+  navigierbar.
+
+---
+
+### Option C: Clean Architecture (Robert Martin)
+
+Eine Variante der hexagonalen Architektur mit strengeren Abhängigkeitsregeln, die durch
+konzentrische „Ringe“ durchgesetzt werden: Entities → Use Cases → Interface Adapters →
+Frameworks/Drivers. Sie teilt Vorteile und Kosten mit Hexagonal, fügt aber noch mehr
+Zeremonie hinzu (Entities, Use Cases, Presenter und Gateways sind eigenständige Konzepte mit
+separaten Klassen).
+
+Nicht weiter geprüft; das Abwägungsprofil entspricht dem von Hexagonal, ist aber teurer.
+
+---
+
+## Entscheidung
+
+Wir verwenden in Phase 1–2 für alle Services die **Schichtenarchitektur**.
+
+Das Domänenmodell (`Booking.java`) trägt JPA-Annotationen direkt. Service-Klassen besitzen
+die Geschäftslogik. Die Schichtregel (Controller rufen Services auf, Services rufen
+Repositories auf; keine Rückwärtsabhängigkeiten) wird per Konvention und Code-Review
+durchgesetzt.
+
+---
+
+## Begründung
+
+### Das Komplexitätsbudget rechtfertigt Hexagonal noch nicht
+
+Hexagonale Architektur zahlt sich aus, wenn die Fachdomäne so groß und komplex ist, dass
+ihr Schutz vor Framework-Belangen echten Wert hat. Die Domäne des `booking-service` ist eine
+Zustandsmaschine mit fünf Zuständen und drei Übergängen. Die Domänenlogik passt in eine
+einzige `BookingService`-Klasse. Use-Case-Klassen, Port-Interfaces und Adapter-Mapper
+einzuführen, kostet pro Feature drei bis vier zusätzliche Dateien – ohne spürbaren Gewinn
+bei Lesbarkeit oder Testbarkeit.
+
+### Spring Boot ist auf Schichten ausgelegt
+
+Springs Kernabstraktionen (`@Controller`, `@Service`, `@Repository`, `@Transactional`,
+JPA-Entity-Verwaltung) setzen alle ein Schichtenmodell voraus. Hexagonal in Spring erfordert
+Workarounds (detached JPA-Entities, manuelle Transaktionsabgrenzung an Use Cases, Kampf gegen
+die Controller-Annahmen von Spring Security). Das sind lösbare Probleme, aber sie erhöhen die
+kognitive Last in einer Phase, in der wir schnell vorankommen wollen.
+
+### Der Portfolio-Kontext bevorzugt Lesbarkeit vor architektonischer Reinheit
+
+Dieses Projekt wird in Vorstellungsgesprächen von Entwicklern begutachtet. Die
+Schichtenarchitektur ist die Lingua franca der Enterprise-Java-Entwicklung. Ein Reviewer
+findet sich in unter einer Minute zurecht: „Controller nehmen Requests entgegen, Services
+enthalten die Logik, Repositories sprechen mit der Datenbank.“ Hexagonal ist angesehen, setzt
+aber voraus, dass der Reviewer das Muster kennt, um den Code flüssig zu lesen. Das Risiko,
+dass der Code überentwickelt oder verwirrend wirkt, lohnt sich nicht.
+
+### Der Nachteil (Domäne an JPA gekoppelt) wird bewusst akzeptiert, nicht ignoriert
+
+Die Kopplung der Entity an JPA ist ein echter Kompromiss. Wir mildern sie ab, indem
+`@Entity`-Klassen schlank bleiben – sie enthalten nur Felder und Getter/Setter, keine
+Geschäftslogik. Die gesamte Logik liegt in der `service/`-Schicht, sodass die JPA-Kopplung
+die Geschäftsregeln nicht verschmutzt. Wird ein Service so groß, dass das schmerzhaft wird,
+kann er dann – Service für Service, ohne die anderen anzufassen – auf Hexagonal umgebaut
+werden.
+
+---
+
+## Konsequenzen
+
+### Positiv
+- Jeder Spring-Boot-Entwickler ist vom ersten Tag an in der Codebasis produktiv.
+- Weniger Dateien pro Feature beschleunigen die Lieferung in Phase 2 und 3.
+- Framework-Features (Testcontainers, `@DataJpaTest`, Spring-Kafka-Testwerkzeuge) funktionieren
+  ohne Adapter oder besondere Verdrahtung.
+
+### Negativ / Abwägungen
+- Unit-Tests der Service-Schicht in echter Isolation erfordern Mockito, um das Repository zu
+  mocken. Integrationstests mit Testcontainers sind daher die bevorzugte Teststrategie.
+- Geschäftslogik und Persistenzbelange können mit der Zeit verschwimmen, wenn die Disziplin
+  nachlässt. Gegenmaßnahme ist die Regel: Entities sind dumme Datenhalter; `service/` besitzt
+  die gesamte Logik.
+
+---
+
+## Ausblick
+
+Wächst die Domäne eines Services in Phase 3 oder 4 erheblich – etwa wenn `booking-service`
+komplexe Preisregeln, Rabattberechnungen oder einen anspruchsvollen Algorithmus zur
+Sitzauswahl ansammelt –, kann dieser Service unabhängig auf Hexagonal migriert werden. Die
+Microservice-Grenze sorgt dafür, dass diese Migration begrenzt bleibt und andere Services
+nicht betrifft. Die AsyncAPI- und OpenAPI-Verträge bleiben unverändert; nur die interne
+Struktur des Services entwickelt sich weiter.

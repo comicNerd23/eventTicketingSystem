@@ -115,3 +115,134 @@ would silently execute synchronously and block the Kafka consumer thread that tr
   scaffolding that gets deleted, not adapted, the day a real `PaymentGateway` implementation
   (backed by the actual Stripe SDK and Stripe's own webhook delivery) replaces the stub —
   noted here explicitly so it doesn't read as production design later.
+
+---
+
+---
+
+# ADR-011: Das Stub-Payment-Gateway simuliert Stripes eigene Webhook-Zustellung
+
+**Status:** Akzeptiert  
+**Datum:** 2026-07-30  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+Beim manuellen Testen des Frontends durch den Nutzer entdeckt: Ein Klick auf „Confirm & Pay“
+schickt eine Buchung in `PAYMENT_PENDING`, und sie wird nie aufgelöst. Die Ursache wurde durch
+Lesen des Codes und Reproduzieren live gegen den laufenden Stack ermittelt (nicht nur durch
+Code-Lektüre) – ein echter Sitz wurde reserviert, bestätigt, und die Buchung blieb
+unbegrenzt in `PAYMENT_PENDING`:
+
+- `POST /bookings/{id}/confirm` veröffentlicht `payment-initiated`; `payment-service`
+  konsumiert es, ruft `PaymentGateway.createCharge` auf und persistiert eine `PENDING`-Zahlung.
+  Danach passiert nichts, bis jemand `POST /payments/webhook` aufruft – das ist das Einzige, das
+  eine Zahlung von `PENDING` nach `SUCCEEDED` bringt und `payment-completed` veröffentlicht, womit
+  `booking-service` die Saga abschließen und die Buchung auf `CONFIRMED` setzen kann.
+- Eine Suche im gesamten Frontend nach `"webhook"` liefert null Treffer. Nichts in
+  `booking-api.service.ts` oder irgendwo sonst in der Angular-App ruft diesen Endpunkt auf.
+- Es ist schlimmer als nur „hängen geblieben“: `cancelBooking` akzeptiert nur
+  `HELD`/`CONFIRMED`-Buchungen, und der Redis-Listener für abgelaufene Reservierungen beobachtet
+  nur `HELD`-Buchungen – eine `PAYMENT_PENDING`-Buchung hat also, einmal hängen geblieben,
+  keinerlei Wiederherstellungspfad.
+
+**Warum das erst jetzt auffiel:** Bis zum Slice zur Stilllegung des `payment-simulator`
+schloss dieser Service die Saga etwa 600 ms nach `payment-initiated` automatisch ab, ganz ohne
+Webhook, sodass niemand bemerkte, dass der Webhook nie ans Frontend angebunden war. Mit seiner
+Stilllegung wurde der echte zweiphasige, webhook-gesteuerte Ablauf des `payment-service` (wie
+Stripe tatsächlich funktioniert) der einzige Pfad – und diese Phase hat tatsächlich nirgends
+einen Aufrufer außer dem expliziten, manuellen Webhook-Schritt in `demo.sh`.
+
+### Option A: Das Frontend ruft den Webhook selbst auf
+Die Angular-App fragt `payment-service` per Polling nach der Intent-ID der `PENDING`-Zahlung ab
+und ruft dann direkt `POST /payments/webhook` auf.
+
+**Stärken:**
+- Würde ohne Backend-Änderungen funktionieren.
+
+**Schwächen:**
+- Architektonisch verkehrt herum: Ein Webhook bildet eine externe Partei (Stripe) ab, die
+  *dein* Backend aufruft. Dass der Browser den Webhook-Endpunkt seines eigenen Backends
+  aufruft, würde eine echte Stripe-Integration nie tun.
+- Gibt Interna des payment-service (Payment-Intent-IDs, die Existenz eines Webhook-Endpunkts)
+  ans Frontend preis, das heute korrekterweise gar nicht mit dem payment-service spricht –
+  Buchung und Zahlung sind getrennte Bounded Contexts (ADR-001), und das Frontend kennt nur den
+  booking-service.
+
+### Option B: Das Stub-Gateway simuliert die Webhook-Zustellung von Stripe selbst
+`StubPaymentGateway` steht beim Erzeugen einer Zahlung bereits für „was Stripe tun würde“. Es
+soll auch für „Stripe ruft einen Moment später zurück“ stehen: Nachdem `createCharge` den
+`PENDING`-PaymentIntent zurückgegeben hat, wird ein kurz verzögerter **echter HTTP-Aufruf an den
+`/payments/webhook`-Endpunkt dieses eigenen Services** eingeplant – denselben Endpunkt, den ein
+echter Stripe-Webhook träfe, mit derselben erzwungenen Prüfung auf das Vorhandensein einer
+Signatur, sodass der Webhook-Mechanismus selbst vollständig echt und testbar bleibt.
+
+**Stärken:**
+- Keinerlei Frontend-Änderungen; die Buchung schließt nun von selbst ab, genauso wie wenn ein
+  echter Zahlungsanbieter hinter `PaymentGateway` angebunden wäre.
+- Der echte Webhook-Controller, die Validierung und der Idempotenz-Schutz werden bei jeder
+  einzelnen Bestätigung ausgeübt, nicht nur im manuellen Schritt von `demo.sh`.
+- Vollständig auf den Stub beschränkt – an `PaymentService`, `PaymentController` oder dem
+  `PaymentGateway`-Interface ändert sich nichts, sodass sich später eine echte
+  Stripe-Implementierung hinter demselben Interface ohne Folgeänderungen einfügt.
+
+**Schwächen:**
+- `payment-service` macht einen ausgehenden HTTP-Aufruf an sich selbst, nur um einen externen
+  Akteur zu simulieren – ein bewusster Platzhalter, der nirgends in die Nähe einer echten
+  Integration gehört.
+
+---
+
+## Entscheidung
+
+Wir führen **Option B** ein – das Stub-Payment-Gateway stellt einen simulierten Stripe-Webhook-
+Aufruf selbst zu.
+
+---
+
+## Begründung
+
+Der Webhook-Endpunkt, seine Stripe-Signature-Prüfung und sein Idempotenz-Schutz
+(`PaymentService.handleWebhook` tut bei einer nicht-`PENDING`-Zahlung bereits nichts) sind der
+echte Vertrag, den dieser Service irgendwann von Stripe erhalten wird. Die Zustellung aus dem
+Stub-Gateway heraus zu simulieren, übt genau diesen Vertrag bei jeder Bestätigung aus, lässt
+Frontend und booking-service völlig im Unklaren darüber, dass sich etwas geändert hat, und hält
+die Frage „wie wird eine Zahlung bestätigt“ vollständig in der einen Komponente
+(`PaymentGateway`), deren ganzer Zweck es bereits ist, das wegzuabstrahieren.
+
+Umsetzung: Der verzögerte Selbstaufruf ist `@Async` und schläft etwa 1 Sekunde (lang genug, um
+den Zustand „Processing payment…“ im Frontend zu sehen, kurz genug, um sich nicht kaputt
+anzufühlen – ungefähr dieselbe Form wie die Verzögerung der stillgelegten automatischen
+Fertigstellung des `payment-simulator`), bevor es
+`{"type": "payment_intent.succeeded", "paymentIntentId": ...}` mit dem Header
+`Stripe-Signature: t=stub,v1=stub_signature` per `POST` sendet. Die `@Async`-Methode liegt in
+einer separaten Bean (`StripeWebhookSimulator`), nicht in `StubPaymentGateway` selbst – Springs
+`@Async`-Proxy kann einen Selbstaufruf innerhalb derselben Bean nicht abfangen; ein Aufruf aus
+`createCharge` über `this` würde stillschweigend synchron laufen und den Kafka-Consumer-Thread
+blockieren, der ihn ausgelöst hat.
+
+---
+
+## Konsequenzen
+
+### Positiv
+- Der echte Fehler ist behoben: Das Bestätigen einer Buchung erreicht nun tatsächlich
+  `CONFIRMED` mit einer Ticket-Referenz, ohne manuelle oder frontendgesteuerte Webhook-Aufrufe.
+- Das echte Validierungs- und Idempotenzverhalten des Webhook-Endpunkts wird laufend geübt,
+  nicht nur durch `demo.sh`.
+- Der manuelle Webhook-Schritt von `demo.sh` (Schritt 4) dient nun zugleich als Live-Demonstration
+  der idempotenten Behandlung von Stripes realer At-least-once-Wiederzustellung, da er
+  typischerweise eintrifft, nachdem die simulierte Zustellung des Stubs die Zahlung bereits
+  erfolgreich abgeschlossen hat.
+
+### Negativ / Abwägungen
+- `payment-service` hängt nun im Main-Scope von `spring-boot-restclient` ab (zuvor nur im
+  Test-Scope), allein um sich selbst aufzurufen – ein Fußabdruck, der nur wegen des Stubs
+  existiert.
+- Dieser gesamte Mechanismus (`StripeWebhookSimulator`, der HTTP-Selbstaufruf, die künstliche
+  Verzögerung) ist Gerüst, das gelöscht und nicht angepasst wird, sobald eine echte
+  `PaymentGateway`-Implementierung (mit dem echten Stripe-SDK und Stripes eigener
+  Webhook-Zustellung) den Stub ersetzt – hier ausdrücklich vermerkt, damit es später nicht wie
+  Produktionsdesign wirkt.

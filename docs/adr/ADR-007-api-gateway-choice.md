@@ -115,3 +115,122 @@ platform team or Kubernetes deployment to configure it against.
   I/O model is actually well-suited (many concurrent proxied requests, mostly
   waiting on downstream I/O) — this isn't introduced as a platform-wide
   direction.
+
+---
+
+---
+
+# ADR-007: API-Gateway – Spring Cloud Gateway (reaktiv)
+
+**Status:** Akzeptiert  
+**Datum:** 2026-07-29  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+Die Plattform braucht einen einzigen, clientseitigen Einstiegspunkt, der Anfragen an die fünf
+Backend-Services (`event-service`, `booking-service`, `payment-service`,
+`notification-service`, `waitlist-service`) weiterleitet, statt dass Clients den individuellen
+Port jedes Services kennen müssen. Mehrere Optionen wurden bewertet:
+
+### Option A: Spring Cloud Gateway (reaktiv, WebFlux/Project Reactor)
+Die klassische, am weitesten verbreitete Implementierung von „Spring Cloud Gateway“ – gebaut
+auf Project Reactor statt auf dem Servlet-Stack, den alle anderen Services dieser Plattform
+nutzen.
+
+**Stärken:**
+- Branchenstandard für Spring-basierte API-Gateways; die Variante, die gemeint ist, wenn
+  „Spring Cloud Gateway“ ohne Zusatz genannt wird.
+- Nicht blockierendes I/O passt gut zur Aufgabe eines Gateways (viele gleichzeitige
+  weitergeleitete Anfragen, die meist auf nachgelagertes I/O warten).
+- Zeigt direkt reaktive Spring-Kenntnisse, getrennt von den MVC-Kenntnissen, die alle anderen
+  Services bereits zeigen.
+
+**Schwächen:**
+- Bringt ein zweites Programmiermodell (reaktiv/Mono·Flux) neben dem überall sonst genutzten
+  Servlet-/MVC-Modell in die Codebasis – andere Testwerkzeuge (`WebTestClient` statt `MockMvc`),
+  anderes mentales Debugging-Modell.
+- Nicht das, was ein wirklich unternehmensweiter Einsatz typischerweise verwenden würde (siehe
+  Konsequenzen unten).
+
+### Option B: Spring Cloud Gateway MVC (Servlet-basiert)
+Eine neuere, Servlet-basierte Implementierung desselben Routing-Funktionsumfangs
+(`spring-cloud-starter-gateway-server-webmvc`).
+
+**Stärken:**
+- Dasselbe deklarative Routing-/Predicate-/Filter-Modell wie Option A, bleibt aber auf dem
+  Servlet-Stack – konsistent mit allen anderen Services der Plattform (reines Spring MVC,
+  Tests im `MockMvc`-Stil).
+- Geringere kognitive Last: Es wird kein neues Programmiermodell eingeführt.
+
+**Schwächen:**
+- Neuer und weniger bekannt als die reaktive Implementierung; hat in Vorstellungsgesprächen und
+  Stellenanzeigen nicht dieselbe Namenserkennung als „Spring Cloud Gateway“.
+- Verschenkt die Gelegenheit, reaktives Spring zu zeigen, die die klassische Implementierung
+  bietet.
+
+### Option C: Gateway auf Infrastrukturebene (dediziertes Produkt oder Service Mesh)
+NGINX/Traefik als Reverse-Proxy, ein verwaltetes API-Gateway-Produkt (Kong, Apigee,
+Cloud-verwaltetes API Management) oder ein Service Mesh + Kubernetes Ingress (Envoy/Istio), das
+das Routing auf Infrastrukturebene statt im Anwendungscode übernimmt.
+
+**Stärken:**
+- Das, was große, reale Produktionssysteme tatsächlich meist nutzen – Routing, Authentifizierung,
+  Rate-Limiting, WAF, Observability und mTLS gehören einem Plattform-Team, unabhängig vom
+  Release-Zyklus eines einzelnen Services („dumme Leitungen“ am Infrastrukturrand statt von Hand
+  gepflegtem Anwendungscode).
+- Kein zusätzlicher JVM-Service, der gebaut, getestet und betrieben werden muss.
+
+**Schwächen:**
+- Reine Konfiguration, kein Code – zeigt keine Spring-/Java-Kenntnisse, was ein echtes Ziel
+  dieses Projekts ist.
+- Übertrieben für ein Portfolio-Projekt eines Einzelentwicklers ohne Plattform-Team und ohne
+  Kubernetes-Deployment (Phase 5, noch nicht begonnen).
+
+---
+
+## Entscheidung
+
+Wir führen **Spring Cloud Gateway (reaktiv)** ein – Option A.
+
+---
+
+## Begründung
+
+Der erklärte Zweck dieses Projekts ist es, Spring-/Java-Microservice-Kenntnisse gegenüber
+Interviewern aus Enterprise und Beratung zu demonstrieren. Unter den beiden Java-basierten
+Optionen ist die klassische reaktive Implementierung das, was man unter „Spring Cloud Gateway“
+versteht, und zeigt zusätzlich reaktives Spring – eine Fähigkeit, die der Rest der Codebasis
+(durchgehend Spring MVC) sonst nicht zeigt. Option C wurde speziell für dieses Projekt
+abgelehnt, weil es reine Infrastrukturkonfiguration und kein Anwendungscode ist und nicht zu
+einem Portfolio-Projekt eines Einzelentwicklers ohne Plattform-Team oder Kubernetes-Deployment
+passt, gegen das man es konfigurieren könnte.
+
+---
+
+## Konsequenzen
+
+### Positiv
+- Zeigt ein zweites Spring-Programmiermodell (reaktiv) neben dem überall sonst genutzten
+  MVC-Modell und verbreitert damit die vom Projekt gezeigten Fähigkeiten.
+- Ein einziger Einstiegspunkt vereinfacht die clientseitige Oberfläche – ein Port statt fünf.
+
+### Negativ / Abwägungen
+- **Das ist nicht die Empfehlung für den Unternehmensmaßstab.** Im echten großen Maßstab ist ein
+  dediziertes API-Gateway-Produkt oder ein Service Mesh + Ingress (Option C) die in der Praxis
+  üblichere Wahl – es verlagert übergreifende Belange (Authentifizierung, Rate-Limiting, WAF,
+  Observability, mTLS) auf Infrastruktur, die ein Plattform-Team unabhängig von
+  Anwendungs-Deployments besitzt, statt auf einen von Hand gepflegten Java-Service, der an den
+  Release-Zyklus dieser Codebasis gekoppelt ist. Spring Cloud Gateway als Anwendungsservice ist
+  eine vernünftige Wahl für ein mittelgroßes JVM-Team ohne dediziertes Plattform-Team oder – wie
+  hier – um gezielt Spring-/Java-Gateway-Kenntnisse zu zeigen. Dieser Kompromiss wird bewusst
+  ausgesprochen statt stillschweigend gelassen: Die Wahl von Option A ist eine gezielte
+  Entscheidung zur Demonstration von Fähigkeiten, keine Behauptung, dies sei im
+  Unternehmensmaßstab die richtige Architektur.
+- **Der reaktive Stack bleibt auf diesen einen Service beschränkt.** Kein anderer Service nutzt
+  WebFlux; `api-gateway` ist bewusst die einzige Stelle der Codebasis, die `Mono`/`Flux` und
+  `WebTestClient` verwendet, da es der eine Service ist, für den ein reaktives I/O-Modell
+  tatsächlich gut geeignet ist (viele gleichzeitige weitergeleitete Anfragen, die meist auf
+  nachgelagertes I/O warten) – es wird nicht als plattformweite Richtung eingeführt.

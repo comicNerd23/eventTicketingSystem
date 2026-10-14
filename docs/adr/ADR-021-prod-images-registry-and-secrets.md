@@ -187,3 +187,207 @@ Details are in `docs/plan.md`.
   the packages as private, they have to be switched to public once in the package settings.
 - **GHCR's free status can change**, with at least a month's notice. Images could then move to
   another registry by changing the `images:` mapping.
+
+---
+
+---
+
+# ADR-021: Prod-Images, Registry und Secrets
+
+**Status:** Akzeptiert  
+**Datum:** 2026-10-01  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+ADR-016 Slice (e) behandelt Prod: Secrets, eine Image-Registry und einen Deploy-Job. Prod ist k3s
+auf einer Oracle-Always-Free-**Ampere-A1-VM, die arm64 ist**. Bisher wurde jedes Image lokal für
+amd64 gebaut und ohne Registry in einen Dev-Cluster geladen (ADR-020).
+
+Am 2026-10-01 geprüfte Fakten:
+
+- **GHCR ist derzeit kostenlos, auch für private Images.** Die GitHub-Doku sagt: „Container image
+  storage and bandwidth for the Container registry is currently free.“ GitHub verspricht
+  mindestens einen Monat Vorankündigung, bevor sich das ändert
+  ([GitHub-Doku](https://docs.github.com/en/billing/concepts/product-billing/github-packages)).
+  - Das 500-MB-/1-GB-Kontingent von GitHub Free gilt für die anderen GitHub-Packages-Registries,
+    nicht für Container.
+  - **Die Aussage in ADR-016, der Speicher für private GHCR-Images sei auf etwa 500 MB begrenzt,
+    war falsch** und wird hier korrigiert.
+- **arm64-Runner**: `ubuntu-24.04-arm` ist ein standardmäßiger GitHub-gehosteter Runner, seit
+  2026-01-29 in privaten Repositories verfügbar
+  ([Changelog](https://github.blog/changelog/2026-01-29-arm64-standard-runners-are-now-available-in-private-repositories)).
+  In öffentlichen Repositories sind Standard-Runner kostenlos und haben 4 vCPUs.
+- **Das Repository ist öffentlich.** Es stellte sich heraus, dass sich seine Sichtbarkeit von
+  privat geändert hatte.
+- **Jedes Basis-Image hat eine arm64-Variante** (geprüft mit `docker manifest inspect`):
+  `confluentinc/cp-kafka:7.5.0` und `cp-zookeeper:7.5.0`, `postgres:15-alpine`, `redis:7-alpine`,
+  `eclipse-temurin:25-jre`, `maven:3.9-eclipse-temurin-25`, `node:24-alpine` und
+  `nginxinc/nginx-unprivileged:1.30-alpine`. Kafka auf KRaft umzustellen ist für arm64 daher
+  **nicht** nötig. Das schließt die offene Frage aus ADR-018.
+- **Oracle hat das Always-Free-A1-Kontingent am 2026-06-15 auf 2 OCPU / 12 GB halbiert**
+  ([InfoQ](https://www.infoq.com/news/2026/07/oracle-cloud-free-tier-limits/)). Das passt weiterhin
+  zum Stack, der im Dev-Overlay etwa 3 GB braucht.
+
+## Betrachtete Optionen
+
+### Reihenfolge der Arbeit
+- **e1 Images → e2 Prod-Overlay und Secrets → e3 VM und Deploy-Job (gewählt).** Jeder Teil ist für
+  sich verifizierbar; e1 und e2 brauchen keine VM.
+- **Zuerst die VM.** Frühes echtes arm64-Feedback, aber alles würde auf die Kontoeinrichtung
+  warten.
+- **Alles auf einmal.** Das widerspricht der Regel testbarer Slices in `docs/plan.md`.
+
+### Registry
+- **GHCR, öffentliche Images (gewählt).**
+  - Der Quellcode ist bereits öffentlich, öffentliche Images legen also nichts Neues offen.
+  - Der Cluster braucht kein `imagePullSecret`, also gibt es auf der VM keinen ablaufenden Token.
+  - GitHub berechnet öffentliche Images nicht.
+- **GHCR, private Images.** Das wurde zuerst gewählt, als man das Repository für privat hielt. Es
+  braucht ein Pull-Secret mit einem `read:packages`-Token.
+- **Docker Hub Free.** Nur ein privates Repository, und öffentliche Pulls sind ratenbegrenzt. Es
+  wäre außerdem ein weiteres Konto.
+
+### Multi-Arch-Build
+- **Native Runner pro Architektur, dann ein Manifest (gewählt).** amd64 baut auf `ubuntu-latest`
+  und arm64 auf `ubuntu-24.04-arm`. Maven läuft nie unter Emulation.
+- **QEMU-Emulation** auf einem Runner. Am einfachsten zu konfigurieren, aber Maven unter Emulation
+  ist um ein Vielfaches langsamer.
+- **Nur arm64.** Halb so viele Builds, aber die Registry-Images ließen sich in e2 nicht auf der
+  amd64-Dev-Maschine testen.
+
+### Secrets
+- **GitHub-Actions-Secrets, vom Deploy-Job in Kubernetes-Secrets umgewandelt (gewählt).** Das
+  nutzt `kubectl create secret … --dry-run=client -o yaml | kubectl apply -f -`. Es gibt keinen
+  Controller, und im Repository liegt nichts Verschlüsseltes. Es passt zu einem Cluster, der nur
+  aus Actions deployt wird.
+- **Sealed Secrets.** GitOps-freundlich, aber der Entschlüsselungsschlüssel liegt im Cluster. Geht
+  die VM verloren, muss jedes Secret neu versiegelt werden, sofern der Schlüssel nicht separat
+  gesichert ist.
+- **SOPS + age.** Verschlüsselte Dateien im Repository, im Deploy-Job entschlüsselt. Es fügt ein
+  weiteres Werkzeug und einen weiteren zu verwaltenden Schlüssel hinzu.
+
+## Entscheidung (e1)
+
+- **`.github/workflows/release-images.yml`** läuft manuell (`workflow_dispatch`) oder bei einem
+  `v*`-Tag-Push. Es läuft nicht bei jedem Push.
+  - Eine `build`-Matrix deckt 7 Ziele × {amd64 auf `ubuntu-latest`, arm64 auf `ubuntu-24.04-arm`}
+    ab. Seit 2026-10-04 sind beide auf `ubuntu-26.04` / `ubuntu-26.04-arm` festgelegt
+    (`docs/plan.md`). Jeder Job pusht `ghcr.io/comicnerd23/ticketing/<target>:sha-<7>-<arch>`, mit
+    `provenance: false` und einem GitHub-Actions-Layer-Cache pro Ziel und Architektur.
+  - Ein `merge`-Job pro Ziel führt `docker buildx imagetools create` aus, um beide zu
+    **`:sha-<7>`** zu verbinden, plus das Git-Tag (z. B. `:v1.0.0`) bei einem Tag-Push.
+- **Nur unveränderliche Tags:** `sha-<commit>` und Release-Tags, kein `latest`. Ein Deployment
+  benennt immer genau das, was es ausführt, und ein Rollback ist ein erneutes Deployment eines
+  älteren Tags.
+- Der Image-Name bleibt `ticketing/<target>` mit einem Registry-Präfix, sodass das Prod-Overlay ihn
+  per kustomize `images: newName/newTag` abbilden kann, ohne die Basis anzufassen.
+- Das Label `org.opencontainers.image.source` verknüpft jedes Paket mit diesem Repository. Das gibt
+  dem `GITHUB_TOKEN` des Workflows bei späteren Läufen Schreibzugriff.
+
+## Entscheidung (e2)
+
+Weitere Entscheidungen, mit dem Nutzer getroffen:
+- **Das Image-Tag wird zur Deploy-Zeit eingesetzt, nicht committet (GitOps war die Alternative).**
+  Ein Deployment oder Rollback braucht keinen Commit. Was läuft, ist im Cluster und im Log des
+  Deploy-Jobs sichtbar.
+- **Das Actuator des Gateways wird am Frontend-nginx geschlossen (Traefik-Middleware war die
+  Alternative).** Das hält den Ingress Controller-neutral (ADR-018), und die Regel ist in Dev und
+  Prod gleich.
+- **Der lokale Testcluster ist Rancher Desktop**, das k3s mit Traefik wie Prod betreibt. kind war
+  die Alternative.
+
+Was gebaut wurde:
+- **`k8s/overlays/prod`** bildet jedes `ticketing/<target>` auf
+  `ghcr.io/comicnerd23/ticketing/<target>` mit dem Tag `set-by-deploy` ab. Es definiert weder ein
+  Secret noch eine ConfigMap, da das Repository öffentlich ist.
+- **`deploy-prod.js --context=<ctx> --tag=<sha-…|vX.Y.Z> --base-url=<url>`** ist der eine
+  Deploy-Pfad, lokal und vom e3-Deploy-Job ausgeführt. In dieser Reihenfolge:
+  - verlangt einen **expliziten Kube-Context**. Anders als `deploy-dev.js` nutzt es nie den
+    aktuellen.
+  - akzeptiert **nur unveränderliche Tags** (`sha-<7 hex>` oder `vX.Y.Z`; `latest` wird
+    abgelehnt).
+  - prüft mit einem anonymen GHCR-Token, dass das Tag für **alle sieben** Images existiert, bevor
+    irgendetwas angewendet wird.
+  - schreibt den Namespace, das `db-credentials`-Secret und die `gateway-config`-ConfigMap aus
+    `DB_PASSWORD`, `GATEWAY_CORS_ALLOWED_ORIGINS` und `DB_USERNAME` (Standard `ticketing`). Sie
+    gehen über **stdin** an `kubectl apply -f -`, sodass Werte nie in einer Kommandozeile oder im
+    Log erscheinen.
+  - rendert das Overlay, ersetzt genau sieben Platzhalter, wendet es an und wartet auf jeden
+    Rollout.
+  - führt einen Smoke-Test über den Ingress aus: die App-Shell, `/api/events`, und
+    **`/api/actuator/health` muss 404 liefern**.
+- **Der Frontend-nginx liefert 404 für `location ^~ /api/actuator`.** Probes und später Prometheus
+  erreichen die Pods direkt, innerhalb des Clusters.
+- `k8s-helpers.js` enthält die kubectl-, Rollout- und Smoke-Check-Helfer, die mit `deploy-dev.js`
+  geteilt werden.
+
+## Entscheidung (e3)
+
+Zuerst geprüfte Fakten:
+- **Ein selbst gehosteter Runner auf der VM scheidet aus.** GitHub rät in öffentlichen Repositories
+  von selbst gehosteten Runnern ab, da ein Pull Request aus einem Fork darauf Code ausführen kann
+  ([Hintergrund](https://www.legitsecurity.com/blog/securing-your-ci/cd-pipeline-exploring-the-dangers-of-self-hosted-agents)).
+  Das Deployment läuft daher auf einem GitHub-gehosteten Runner, der die VM erreichen muss.
+- **Oracle blockiert Traffic doppelt.** Ein Port muss in der Sicherheitsliste des VCN **und** in
+  den iptables-Regeln des Ubuntu-Images geöffnet sein, vor der REJECT-Regel des Images
+  ([Oracle-Blog](https://blogs.oracle.com/developers/enabling-network-traffic-to-ubuntu-images-in-oracle-cloud-infrastructure)).
+
+Entscheidungen, mit dem Nutzer getroffen:
+- **Ein SSH-Tunnel zur k3s-API (gewählt).** Die Alternativen waren Tailscale, was ein weiteres
+  Konto bedeutet, und ein öffentlicher Port 6443, der nicht empfohlen wird. Der Job führt
+  `ssh -L 6443:127.0.0.1:6443` mit einem eigenen Deploy-Schlüssel aus, und der Host-Schlüssel ist
+  über `known_hosts` festgesetzt. Der API-Port wird nie geöffnet.
+- **Zuerst einfaches HTTP auf der öffentlichen IP.** TLS (sslip.io oder eine Domain, plus Let's
+  Encrypt) folgt als eigener Slice.
+- **Manuelle Deployments mit Tag-Eingabe** (`workflow_dispatch`) in einer GitHub-Umgebung namens
+  `production`. Die Alternativen waren Deployment bei jedem `v*`-Tag oder bei jedem Push.
+- **Ubuntu 24.04** auf der A1-VM. Die Alternative war Oracle Linux 9 mit SELinux.
+
+Was gebaut wurde:
+- **`k8s/prod/setup-k3s.sh`** läuft einmal auf der VM und kann gefahrlos erneut ausgeführt werden.
+  Es öffnet 80/443 in iptables vor dem ersten REJECT, entfernt das pauschale FORWARD-REJECT des
+  Images (Pod-Traffic wird weitergeleitet) und persistiert die Regeln. Danach installiert es k3s
+  **`v1.36.4+k3s1`**, den stabilen Kanal und dieselbe Version wie Rancher Desktop, und wartet auf
+  den Knoten.
+- **`.github/workflows/deploy-prod.yml`** liest Kubeconfig, Deploy-Schlüssel und `known_hosts` aus
+  den Secrets der Umgebung, benennt den k3s-Context in `prod` um, öffnet den Tunnel und führt
+  `deploy-prod.js --context=prod` aus.
+- **`docs/runbooks/prod-vm.md`** listet die Schritte des Nutzers auf: das Oracle-Konto, die
+  Instanz und Sicherheitsliste, den Deploy-Schlüssel und die per `gh secret set` über stdin
+  gesetzten Umgebungs-Secrets.
+
+**Bekannte Grenze:** Postgres setzt sein Passwort nur bei der ersten Initialisierung seines Volumes.
+Eine spätere Änderung von `DB_PASSWORD` aktualisiert das Secret, aber nicht den Datenbanknutzer.
+Eine Passwortrotation braucht zusätzlich ein `ALTER USER` in Postgres.
+
+**Verifiziert am 2026-10-02:** Das erste Deployment auf die echte A1-VM (Ubuntu 24.04, k3s
+`v1.36.4+k3s1`) lief grün mit dem Tag `sha-8b82a63`
+([Run 37028620560](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37028620560)).
+Der Tunnel vom gehosteten Runner funktionierte, und der API-Port blieb von außen geschlossen. Alle
+11 Pods kamen ohne Neustarts hoch, und der Smoke-Check lieferte 200 für `/` und `/api/events` und
+404 für `/api/actuator/health`. Am 2026-10-04 wurde Prod über Teil D des Runbooks gesät, und ein
+Durchlauf Reservieren → Bestätigen → Stornieren im Browser funktionierte, einschließlich der
+Live-Sitzplatz-Updates über den WebSocket. Details stehen in `docs/plan.md`.
+
+## Konsequenzen
+
+**Positiv**
+- Die Prod-VM zieht native arm64-Images; Dev-Maschinen können dieselben Tags als amd64 ziehen.
+- Release-Tags lassen sich auf einen Commit zurückverfolgen, und ältere Tags bleiben für Rollbacks
+  verfügbar.
+- Keine Registry-Kosten und kein Pull-Secret.
+
+**Negativ / akzeptiert**
+- **14 Build-Jobs pro Release**, plus 7 Merge-Jobs. In einem öffentlichen Repository kostet das
+  keine Minuten, aber ein Release dauert mehrere Minuten Echtzeit.
+- **Die Tags pro Architektur (`-amd64`, `-arm64`) bleiben in der Registry** neben dem
+  Multi-Arch-Tag. Ein Push-by-Digest-Ablauf würde sie vermeiden, auf Kosten der Weitergabe von
+  Digests zwischen Jobs als Artefakte.
+- **Die Sichtbarkeit von Paketen ist eine GHCR-Einstellung, keine Workflow-Einstellung.** Legt der
+  erste Push die Pakete als privat an, müssen sie einmal in den Paketeinstellungen auf öffentlich
+  umgestellt werden.
+- **Der kostenlose Status von GHCR kann sich ändern**, mit mindestens einem Monat Vorankündigung.
+  Images könnten dann durch Änderung der `images:`-Zuordnung in eine andere Registry umziehen.

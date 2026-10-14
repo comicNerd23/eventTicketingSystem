@@ -148,3 +148,160 @@ k8s/
   - Real Secrets.
 
   This is all slice (e).
+
+---
+
+---
+
+# ADR-018: Kubernetes-Basismanifeste, Traefik-Ingress und kind zur lokalen Verifikation
+
+**Status:** Akzeptiert  
+**Datum:** 2026-10-01  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+ADR-016 Slice (b) verlangt die Basismanifeste:
+- Deployments und Services für die sechs Services.
+- StatefulSets für Postgres, Redis und Kafka.
+- Einen Ingress, der den WebSocket-Pfad zum booking-service einschließt (ADR-009).
+- Liveness- und Readiness-Probes auf den Actuator-Health-Gruppen.
+
+ADR-017 fügte zwei Anforderungen hinzu:
+- Jeder Pod braucht `enableServiceLinks: false`.
+- booking-service braucht eine eigene Datenbank, da er in docker-compose noch die gemeinsame
+  Datenbank `ticketing` nutzt (im Widerspruch zu ADR-001).
+
+Vor diesem ADR existierten `k8s/base` und `k8s/overlays/{dev,prod}`, waren aber leer.
+
+Drei Dinge waren zu entscheiden:
+
+1. **Welcher Cluster die Manifeste jetzt verifiziert.** Die Entwicklungsmaschine begrenzt die
+   Docker-VM auf 4 GB, und diese Grenze bleibt. Allein der Compose-Stack belegte davon etwa
+   2,9 GB.
+2. **Wie Traffic in den Cluster gelangt.** Der Community-Controller **ingress-nginx**, lange die
+   Standardwahl, wurde im März 2026 eingestellt: keine Releases und Sicherheitsfixes mehr
+   ([CNCF](https://www.cncf.io/blog/2026/04/02/ingress-nginx-retirement-experience-from-end-users/),
+   [Fairwinds](https://www.fairwinds.com/blog/kubernetes-ingress-nginx-2026-migration)). Die
+   Ingress-API ist feature-eingefroren, neue Arbeit geschieht in der Gateway API. Beide
+   Zielcluster, k3s (Prod) und Rancher Desktop (Dev, das k3s betreibt), bündeln **Traefik** (v3.7
+   in aktuellen k3s-Releases) als Standard-Ingress-Controller
+   ([k3s-Release-Notes](https://newreleases.io/project/github/k3s-io/k3s/release/v1.36.3%2Bk3s1),
+   [Rancher-Desktop-Doku](https://docs.rancherdesktop.io/how-to-guides/traefik-ingress-example/)).
+   Traefik bedient sowohl Ingress- als auch Gateway-API-Ressourcen.
+3. **Wie Kafka im Cluster läuft.**
+
+## Betrachtete Optionen
+
+### Cluster zur Verifikation
+- **kind in Docker Desktop (gewählt).** Ein `winget install`. Es nutzt die vorhandene Docker-VM
+  wieder, und der Cluster ist wegwerfbar. ADR-016 nennt kind bereits als Dev-Alternative.
+- **Rancher Desktop jetzt.** Das ist das echte Dev-Ziel, aber eine zweite VM neben Docker
+  Desktop auf einer Maschine mit wenig freiem Speicher. Auf Slice (d) verschoben.
+- **Nur Offline-Validierung** (`kubectl kustomize`, Dry-Run). Braucht keinen Speicher, beweist
+  aber nicht, dass tatsächlich etwas läuft.
+
+### Einstiegspunkt
+- **A. Ingress-Ressource, bedient von Traefik (gewählt).**
+  - Funktioniert in k3s und Rancher Desktop, ohne dass etwas Zusätzliches zu installieren ist.
+  - kind braucht ein kleines Traefik-Manifest.
+- **B. Gateway API (`Gateway` + `HTTPRoute`) mit Traefik.**
+  - Die zukunftsweisende API.
+  - Aber jede Umgebung braucht die Gateway-API-CRDs und zusätzlich den aktivierten
+    Gateway-Provider von Traefik. In k3s ist das ein `HelmChartConfig`-Override.
+  - Das ist in jeder Umgebung mehr Konfiguration für dieselbe einzelne Route.
+- **C. Kein Ingress.** Das api-gateway würde als NodePort- oder LoadBalancer-Service
+  veröffentlicht. Das ist die einfachste Option, widerspricht aber ADR-016, und TLS und
+  Host-Routing landeten später im Spring-Gateway.
+
+### Kafka
+- **Dieselben Images wie in docker-compose (gewählt):** cp-zookeeper und cp-kafka 7.5.0. Compose
+  und Kubernetes verhalten sich gleich, und in diesem Slice muss nichts Neues gelernt werden.
+- **KRaft-Modus (ohne ZooKeeper).** Würde einen Pod sparen (~100–200 MB). Es ist eine
+  Broker-Änderung, die auch in Compose einfließen müsste, daher besser als eigener Slice.
+
+## Entscheidung
+
+### Aufbau
+
+```
+k8s/
+  base/                 umgebungsneutral, Namespace "ticketing"
+    infra/              postgres, redis, zookeeper, kafka (je StatefulSet + Service)
+    services/           sechs Paare aus Deployment + Service
+    ingress.yaml        ein Ingress: / -> api-gateway:8080
+  overlays/dev/         Image-Tags (:dev), db-credentials-Secret, gateway-config-ConfigMap
+  overlays/prod/        noch leer, wird in Slice (e) gefüllt
+  kind/                 cluster.yaml + traefik.yaml, nur zur lokalen Verifikation
+```
+
+### Entscheidungen in den Manifesten
+
+- **Eine Ingress-Regel, `/` auf api-gateway.** Das Gateway routet `/bookings/ws/**` bereits auf
+  den WebSocket-Endpunkt des booking-service (ADR-007, ADR-009), und Traefik reicht
+  WebSocket-Upgrades ohne zusätzliche Konfiguration durch.
+  - Der Ingress hat keine `ingressClassName`, wird also von der Standardklasse des Clusters
+    bedient. In k3s ist das Traefik; bei kind markiert `k8s/kind/traefik.yaml` dessen
+    IngressClass auf dieselbe Weise als Standard.
+- **Das Spring-Profil `prod` in jedem Cluster, auch in Dev.** In einem Cluster wird jeder Wert
+  explizit übergeben, und das Prod-Profil scheitert beim Start, wenn einer fehlt (ADR-017s
+  `RequiredConfigurationCheck`). Das macht das Profil zu einer Vollständigkeitsprüfung der
+  Manifeste.
+- **`enableServiceLinks: false` auf jedem Pod.** Ein Kontroll-Pod ohne diese Einstellung bekam
+  `REDIS_PORT=tcp://10.96.x.x:6379` und `KAFKA_PORT=tcp://…`. Mit ihr sieht booking-service
+  `REDIS_PORT=6379`, und der Kafka-Pod hat gar kein `KAFKA_PORT`.
+- **Eine Datenbank pro Service, auch für booking-service.** Ein Postgres-StatefulSet. Eine
+  `postgres-init`-ConfigMap legt `ticketing_events`, `ticketing_bookings`, `ticketing_payments`,
+  `ticketing_notifications` und `ticketing_waitlist` an, und Flyway erzeugt jedes Schema.
+  - docker-compose wird hier **nicht** geändert. Den booking-service dort auf
+    `ticketing_bookings` umzustellen, erfordert, dass diese Datenbank in bestehenden Dev-Volumes
+    von Hand angelegt wird, das ist also ein separater kleiner Fix.
+- **Probes** auf den Gruppen `/actuator/health/liveness` und `/readiness` von Spring Boot. Boot
+  aktiviert sie automatisch, wenn es Kubernetes erkennt.
+  - Ein `startupProbe` erlaubt bis zu 3 Minuten, da sechs gleichzeitig startende JVMs auf zwei
+    CPUs langsam sind.
+  - Liveness nutzt `timeoutSeconds: 3`. Unter dieser Konkurrenz wurde der Standard von 1 s beim
+    Start überschritten.
+- **Ressourcen** sind für die 4-GB-Maschine bemessen:
+  - Jeder Service fordert 300 Mi an und ist auf 512 Mi begrenzt. `MaxRAMPercentage=60` hält den
+    Heap innerhalb des Limits.
+  - Kafka ist auf 384 MB Heap begrenzt (768 Mi Limit), ZooKeeper auf 128 MB.
+  - Es gibt keine CPU-Limits, die nur den JVM-Start verlangsamen würden.
+- **Zugangsdaten** kommen aus einem `db-credentials`-Secret. Das Dev-Overlay erzeugt es mit dem
+  lokalen Passwort; Prod bekommt echte Secrets in Slice (e).
+- **Vorerst nicht im Cluster:** Prometheus, Grafana und Kafdrop. Sie passen neben dem Stack nicht
+  in 4 GB und gehören zu den Observability-Slices.
+
+## Konsequenzen
+
+**Positiv**
+- Dieselbe Basis läuft unverändert auf kind, Rancher Desktop und k3s; nur das Overlay
+  unterscheidet sich.
+- Eine fehlende Umgebungsvariable in einem Manifest scheitert dank des Prod-Profils laut beim
+  Start.
+- booking-service hat in Kubernetes endlich seine eigene Datenbank, wie ADR-001 es verlangt.
+
+**Negativ / akzeptiert**
+- **Die Ingress-API ist eingefroren.** Der Wechsel zur Gateway API ist eine spätere, begrenzte
+  Änderung: eine `HTTPRoute` statt eines Ingress, plus Aktivierung von Traefiks Gateway-Provider.
+- **Keine Startreihenfolge.** Bei einem Kaltstart kann Kafka vor ZooKeeper hochkommen und die
+  Services vor Postgres. Sie stürzen ab und werden von Kubernetes neu gestartet, bis ihre
+  Abhängigkeiten laufen: 1–2 Neustarts pro Pod, alles nach etwa 5 Minuten Ready. Init-Container,
+  die auf Abhängigkeiten warten, könnten das beseitigen. Sie wurden weggelassen, weil Neustarten
+  der normale Kubernetes-Weg zur Konvergenz ist.
+- **Der Speicher ist knapp.** Der kind-Knoten belegt mit dem vollen Stack etwa 3,0 von 3,8 GiB.
+  Der Compose-Stack und der Cluster können nicht gleichzeitig laufen.
+- `seed-events.js` leert Tabellen mit `docker exec docker-postgres-1` und funktioniert daher nur
+  gegen Compose. Ein Cluster-Äquivalent gehört in das Dev-Deploy-Skript, Slice (d).
+- `kubectl apply` meldet die drei StatefulSets mit Volume Claims bei jedem Lauf als „configured“,
+  obwohl `kubectl diff` keine Änderung zeigt und kein Pod neu erzeugt wird. Das ist eine
+  Eigenheit des clientseitigen Apply mit `volumeClaimTemplates` und harmlos.
+- **Prod braucht noch:**
+  - arm64- oder Multi-Arch-Images. Dazu gehört, cp-kafka 7.5.0 auf arm64 zu prüfen oder auf KRaft
+    mit einem Image umzusteigen, das einen arm64-Build hat.
+  - Eine Registry.
+  - Echte Secrets.
+
+  Das ist alles Slice (e).

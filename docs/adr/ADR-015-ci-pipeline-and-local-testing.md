@@ -110,3 +110,126 @@ on Windows, so it can't be the default path. **E** and **F** are useful but sepa
   PR-triggered because of its runtime.
 - Pre-push hook (option E).
 - Image push to a registry and CD/deployment — see ADR-016 for the environment decision.
+
+---
+
+---
+
+# ADR-015: CI-Pipeline und lokales Testen
+
+**Status:** Akzeptiert  
+**Datum:** 2026-09-29  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+Der nächste Slice von Phase 5 laut `docs/plan.md` ist CI: eine Build-/Test-Pipeline für die sechs
+Spring-Boot-Services und das Angular-Frontend, zeitlich vor das verteilte Tracing gelegt, damit
+sie Regressionen durch die Kafka-Header-Änderungen abfangen kann, die Tracing braucht.
+
+Zwei Randbedingungen prägten diese Entscheidung über „eine Pipeline haben“ hinaus:
+
+1. **Sie muss lokal ebenso testbar sein wie in der Cloud**, und ein lokaler grüner Lauf soll
+   dasselbe bedeuten wie ein grüner CI-Lauf.
+2. **Sie muss kostenlos bleiben.**
+
+### Vor der Entscheidung geprüfte Fakten
+- Sechs eigenständige Maven-Module unter `services/`, kein Parent-POM, kein Maven Wrapper;
+  Spring Boot 4.1.0 / Java 25. Jeder Service hat ein mehrstufiges `Dockerfile`.
+- Fünf Services führen Testcontainers-Suiten aus (`postgres:15-alpine`,
+  `confluentinc/cp-kafka:7.5.0`); `api-gateway` hat keine.
+- **Lokale Testcontainers-Läufe gehen über Testcontainers Desktop**: `tc.host` in
+  `~/.testcontainers.properties` zeigt auf dessen lokalen Proxy.
+  - Der Proxy leitet je nach in der App gewählter Laufzeitumgebung entweder an das lokale Docker
+    oder an Testcontainers Cloud weiter. Die Properties-Datei sieht in beiden Modi gleich aus.
+  - Der kostenlose Tarif von Testcontainers Cloud ist auf 50 Min./Monat begrenzt
+    (`docs/plan.md`, Offene Haushaltsarbeiten). Immer wenn Cloud gewählt war, war diese Grenze,
+    nicht die Rechenleistung, der eigentliche Kostenengpass beim lokalen Testen.
+- Frontend-Tests sind Vitest auf jsdom (ADR-013) – in CI ist kein Browser nötig.
+- Das GitHub-Repository ist **privat**. GitHub Free enthält 2.000 Actions-Minuten/Monat für
+  private Repos; ohne hinterlegte Zahlungsmethode stoppt Actions am Kontingent, statt abzurechnen.
+- Präzedenzfall für Tooling: `seed-events.js` / `demo.js` sind abhängigkeitsfreie Node-Skripte,
+  die Bash-Skripte ersetzten, damit sie unter Windows ohne Git Bash/WSL laufen.
+
+## Optionen für lokales Testen
+
+| # | Option | Was sie verifiziert | Kosten |
+|---|---|---|---|
+| A | Befehle pro Service wie bisher (`mvn test`, `npx ng test`) | Code | Kostenlos, aber Testcontainers-Cloud-Minuten zählen |
+| B | Ein gemeinsamer Einstiegspunkt, `ci.js`, lokal und vom Workflow identisch aufgerufen | Code, mit Befehlsparität zu CI | Kostenlos |
+| C | `act` (nektos/act) – führt die echte Workflow-YAML lokal in Docker aus | Die Workflow-Datei selbst (Trigger, Matrix, Schritte) | Kostenlos, mehrere GB große Runner-Images |
+| D | Testcontainers auf lokalem Docker Desktop statt Testcontainers Cloud | Wie A/B | Kostenlos und unbegrenzt |
+| E | Git-Pre-Push-Hook, der `ci.js` für geänderte Ziele ausführt | Code, vor jedem Push | Kostenlos, verlangsamt jeden Push |
+| F | Lokaler End-to-End-Smoke-Test: `docker compose up`, `seed-events.js`, `demo.js` | Die ganze Saga | Kostenlos (existiert bereits, manuell) |
+
+**A** funktioniert heute, lässt aber lokale und CI-Befehle auseinanderdriften. **C** bietet die
+höchste Treue zur YAML, aber Testcontainers innerhalb von act braucht den eingebundenen
+Docker-Socket des Hosts und ist unter Windows knifflig, kann also nicht der Standardweg sein.
+**E** und **F** sind nützlich, aber separate Themen.
+
+## Optionen für die Cloud-Seite
+
+- **GitHub Actions** – das Repo liegt bereits auf GitHub; 2.000 kostenlose Minuten/Monat reichen
+  mit den untenstehenden Maßnahmen; Ubuntu-Runner haben Docker, Testcontainers funktioniert also
+  ohne Cloud-Dienst.
+- **GitLab CI** (400 kostenlose Min./Monat) und **CircleCI Free** – würden bedeuten, das Repo auf
+  eine zweite Plattform zu spiegeln, für weniger oder vergleichbare kostenlose Kapazität.
+  Abgelehnt.
+
+## Entscheidung
+
+**B + D als Standardweg, C als optionales Debugging-Werkzeug, GitHub Actions in der Cloud.**
+
+- `ci.js` (Repo-Wurzel) ist die einzige Quelle der Wahrheit dafür, was „CI besteht“ bedeutet:
+  - `node ci.js <service> [--docker]` → `mvn -B -ntp verify` (+ `docker build` des Dockerfiles
+    des Services).
+  - `node ci.js frontend` → `npm ci`, `ng test --watch=false`, `ng build`.
+  - `node ci.js services` / `node ci.js all` für alles.
+  - Endet mit einem Wert ungleich null und nennt die fehlgeschlagenen Ziele; warnt (ohne zu
+    blockieren), wenn lokale Testcontainers an Testcontainers Cloud geleitet werden.
+- `.github/workflows/ci.yml` führt pro Job **genau diese Befehle** aus, sodass Parität per
+  Konstruktion entsteht, statt zwei Definitionen synchron zu halten.
+- Lokal sollte Testcontainers Desktop für CI-ähnliche Läufe die **lokale Docker-Laufzeit**
+  nutzen (Option D); Testcontainers Cloud bleibt verfügbar, wird aber nicht mehr gebraucht.
+- `act` (Option C) ist als optional dokumentiert, z. B. `act -j frontend`, zum Debuggen der
+  Workflow-Syntax – für die normale Arbeit nicht erforderlich.
+
+### Im kostenlosen Kontingent bleiben
+- **Pfadfilter** (`dorny/paths-filter`): Eine Änderung unter `services/booking-service/**` führt
+  nur den Job des booking-service aus. Eine Änderung an `ci.js` oder am Workflow selbst führt
+  alles erneut aus. `workflow_dispatch` führt immer alles aus.
+- **`concurrency` + `cancel-in-progress`**: Überholte Läufe auf derselben Ref werden abgebrochen.
+- **Caching**: Maven-Cache von `setup-java`, npm-Cache von `setup-node`.
+- **Kein Image-Push**: `docker build` verifiziert nur die Dockerfiles. Ein Push bräuchte eine
+  Registry, und der Speicher für private GHCR-Images ist im kostenlosen Tarif begrenzt (siehe
+  ADR-016).
+- **Surefire-Berichte** werden nur bei Fehlschlag hochgeladen, mit 7 Tagen Aufbewahrung.
+- **Testcontainers** in CI nutzt den Docker-Daemon des Runners – Testcontainers Cloud wird nicht
+  verwendet.
+- Wird das Repo öffentlich gemacht (es ist ein Portfolio-Projekt), werden die Actions-Minuten
+  unbegrenzt; die Filter bleiben wegen des schnellen Feedbacks trotzdem sinnvoll.
+
+## Konsequenzen
+
+**Positiv**
+- Ein Befehl reproduziert lokal einen CI-Job; kein „läuft auf meiner Maschine, scheitert in CI“
+  durch auseinanderdriftende Kommandozeilen.
+- Null Kosten an beiden Orten, die Grenze von Testcontainers Cloud ist aus dem kritischen Pfad
+  entfernt.
+- Jedes Dockerfile wird nun bei jeder relevanten Änderung gebaut – zuvor wurden sie nur durch ein
+  manuelles `docker compose up --build` geübt.
+
+**Negativ / akzeptiert**
+- `--docker` baut jeden Service zweimal (einmal durch `mvn verify`, einmal in der eigenen
+  Build-Stufe des Dockerfiles). Akzeptiert: Der zweite Build *ist* das, was verifiziert wird.
+- Parität besteht bei den Befehlen, nicht bei den Umgebungen: Der CI-Runner ist Linux, die
+  Hauptentwicklungsmaschine ist Windows. `act` (Option C) schließt diese Lücke, wenn es darauf
+  ankommt.
+
+## Zurückgestellt (separate künftige Slices)
+- End-to-End-Smoke-Job in CI (`docker compose up` + `seed-events.js` + `demo.js`), wegen der
+  Laufzeit manuell oder durch PRs ausgelöst.
+- Pre-Push-Hook (Option E).
+- Image-Push in eine Registry und CD/Deployment – siehe ADR-016 für die Umgebungsentscheidung.

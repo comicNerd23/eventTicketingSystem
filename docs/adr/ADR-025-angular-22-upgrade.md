@@ -78,3 +78,99 @@ Angular 22 changes three defaults that matter here:
 - **The browser check covered the frontend's pages, not the full saga.** Payment, notification and
   waitlist weren't running: the full stack plus the dev server ran this machine out of memory. The
   frontend doesn't talk to them directly, and their code didn't change.
+
+---
+
+---
+
+# ADR-025: Upgrade von Angular 21 → 22, neue Standardwerte beibehalten, Webpack-Kette entfernt
+
+**Status:** Akzeptiert  
+**Datum:** 2026-10-05  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+Das Frontend lief mit Angular 21.2.25 und TypeScript 5.9.3 (ADR-013, zoneless seit 2026-08-28).
+Zwei offene Punkte warteten auf Angular 22:
+
+- **Das `piscina`-Override.** `@angular/build` und `@angular-devkit/build-angular` 21.2.24 pinnen
+  `piscina` auf exakt 5.2.0 (kritischer Advisory GHSA-67c8-pqhq-4rmx, behoben in 5.3.2), daher
+  ergänzte ADR-024 einen npm-Eintrag `overrides`, der mit Angular 22 entfernt werden sollte.
+- **Die `braces`-Funde.** `npm audit` meldete 7 hohe Funde rund um `braces`
+  (GHSA-vfj7-8cjw-p6xm, es gibt keine behobene Version). Sie kommen nur über `webpack-dev-server`
+  in `@angular-devkit/build-angular`, das `angular.json` noch für zwei Builder nutzte:
+  `dev-server` und `extract-i18n`. `application` und `unit-test` liefen bereits auf
+  `@angular/build` (ADR-013).
+
+Am 2026-10-05 auf npm geprüft: `@angular/*` 22.2.1 ist `latest` (22.3 ist nur `next`).
+`@angular/build` 22.2.1 verlangt TypeScript `>=6.0 <6.1` und hängt von `piscina` 5.3.2 ab. Die
+Node-Engines der CLI sind `^22.22.3 || ^24.15.0 || >=26.0.0`, was CI (Node 24) und das Build-Image
+des Frontends (`node:26-alpine`) erfüllen.
+
+Angular 22 ändert drei Standardwerte, die hier eine Rolle spielen:
+- **Komponenten ohne `changeDetection` sind OnPush.** `ng update` fügt jeder solchen Komponente
+  `ChangeDetectionStrategy.Eager` hinzu, um das alte Verhalten beizubehalten.
+- **`HttpClient` nutzt die Fetch-API.** `ng update` fügt `withXhr()` zu `provideHttpClient()` hinzu.
+- **Zwei erweiterte Diagnosen sind an** (`nullishCoalescingNotNullable`,
+  `optionalChainNotNullable`). `ng update` unterdrückt sie in `tsconfig.app.json` und
+  `tsconfig.spec.json`.
+
+## Entscheidung
+
+- **Upgrade auf Angular 22.2.1 und TypeScript 6.0.3** über `ng update @angular/core@22
+  @angular/cli@22`, als ein Slice (ADR-024: Angular-Major-Versionen sind kein Dependabot-Merge).
+- **Die neuen Standardwerte beibehalten und die drei Kompatibilitäts-Shims entfernen,** die
+  `ng update` hinzugefügt hat:
+  - **OnPush.** Die App ist seit 2026-08-28 zoneless, und alle fünf Komponenten halten ihren
+    Zustand in Signals, daher wird eine OnPush-Ansicht durch jeden Signal-Schreibzugriff, jedes
+    Template-Event und jeden `interval`-Tick, von dem sie abhängt, zur Prüfung markiert. `Eager`
+    würde nur ein Verhalten bewahren, auf das sich die App nicht mehr verlässt.
+  - **Fetch statt XHR.** Die App nutzt keine Upload- oder Download-Fortschrittsereignisse, die
+    einzige Funktion, für die `withXhr()` existiert.
+  - **Die erweiterten Diagnosen bleiben an.** Ohne die Unterdrückung meldet der Build keine
+    Warnung.
+- **`dev-server` und `extract-i18n` wechseln zu `@angular/build`,** und
+  `@angular-devkit/build-angular` wird aus den `devDependencies` entfernt. Alle vier Builder
+  kommen nun aus `@angular/build`, und die Webpack-Kette (mit `webpack-dev-server` und `braces`)
+  ist weg.
+- **Das `piscina`-Override wird entfernt.** `@angular/build` 22.2.1 bringt `piscina` 5.3.2 selbst
+  mit.
+
+## Verifikation (lokal, 2026-10-05)
+
+- `npm audit`: **0 Schwachstellen**. `npm ls piscina` zeigt 5.3.2 unter `@angular/build`, ohne
+  Override.
+- `ng build` ohne Warnungen, `ng test` 34/34 grün, `node ci.js frontend` PASS (mit Coverage).
+- `ng serve` auf dem neuen `dev-server`-Builder, der `/api` an das Gateway proxyt. Ein
+  verkleinerter Compose-Stack (Postgres, Redis, Kafka, event-service, booking-service,
+  api-gateway), in Chrome geprüft:
+  - Die Event-Liste stellt alle 13 gesäten Events dar.
+  - Sitzplan: Das Umschalten eines Bereichs aktualisiert `aria-expanded`. Eine von außerhalb der
+    Seite gemachte Reservierung lässt einen Sitz innerhalb von 2,5 s über den WebSocket ohne
+    Neuladen von verfügbar auf reserviert wechseln.
+  - Ein Klick auf einen Sitz reserviert ihn und navigiert zur Buchungsseite, deren Countdown
+    weiterläuft (9:51 → 9:47).
+  - Keine Konsolenfehler.
+
+## Konsequenzen
+
+**Positiv**
+- Das `piscina`-Override und alle Funde von `npm audit` sind weg.
+- Ein Build-Paket (`@angular/build`, Vite und esbuild) statt zwei. Webpack wird nicht mehr
+  installiert.
+- Keine Kompatibilitäts-Shims, die später entfernt werden müssen: Der Code folgt den
+  Standardwerten von Angular 22.
+
+**Negativ / akzeptiert**
+- **OnPush ist jetzt implizit.** Eine künftige Komponente, die Zustand in einfachen Feldern hält
+  und ihn aus einem asynchronen Callback ändert, wird nicht neu gerendert. Die Konvention bleibt:
+  Komponentenzustand gehört in Signals.
+- **TypeScript 6** ist strenger. Es meldete in dieser Codebasis nichts, aber künftiger Code könnte
+  früher auf Deprecation-Diagnosen stoßen.
+- **Die Browserprüfung deckte die Seiten des Frontends ab, nicht die vollständige Saga.** Payment,
+  Notification und Waitlist liefen nicht: Der vollständige Stack plus Dev-Server brachte diese
+  Maschine an die Speichergrenze. Das Frontend spricht nicht direkt mit ihnen, und ihr Code hat
+  sich nicht geändert.

@@ -103,3 +103,116 @@ and prod.
   starting until it does.
 - **Same-origin works only behind this nginx or the `ng serve` proxy.** Opening the built files
   any other way has no `/api`.
+
+---
+
+---
+
+# ADR-019: Containerisiertes Frontend mit Same-Origin-/api-Proxy
+
+**Status:** Akzeptiert  
+**Datum:** 2026-10-01  
+**Autoren:** Engineering-Team
+
+---
+
+## Kontext
+
+ADR-016 Slice (c) verlangt ein containerisiertes Frontend, „mit pro Umgebung gesetzten API- und
+WebSocket-URLs“. Bisher lief die Angular-App nur über `ng serve` auf `localhost:4200`, mit
+`http://localhost:8080` und `ws://localhost:8080` fest eincodiert in beiden Environment-Dateien.
+Das Gateway ließ diesen Origin per CORS zu (ADR-017 machte den Origin konfigurierbar).
+
+Drei Erkenntnisse prägten diese Entscheidung:
+
+- **Pfadkollision.** Die clientseitigen Routen `/events/:id` und `/bookings/:id` der SPA sind
+  zugleich Routen-Präfixe des api-gateway (`/events/**`, `/bookings/**`). Teilen sich App und API
+  einen Origin ohne Präfix, liefert ein Neuladen von `/events/123` das JSON des Gateways statt
+  der App.
+- **Ein einfacher Ingress kann kein Präfix entfernen.** Mit einem Ingress `/api → api-gateway`
+  bekäme das Gateway `/api/events`. Das Entfernen des Präfixes braucht Controller-spezifische
+  Annotationen oder Traefik-`Middleware`-CRDs. ADR-018 hielt den Ingress bewusst
+  Controller-neutral.
+- **Die Prod-VM ist arm64** (ADR-016). Jedes Laufzeit-Image muss für arm64 existieren.
+
+## Betrachtete Optionen
+
+### Wie der Browser die API erreicht
+- **A. nginx im Frontend-Image proxyt `/api/**` an api-gateway (gewählt).**
+  - `proxy_pass http://api-gateway:8080/` mit abschließendem Schrägstrich entfernt das Präfix,
+    sodass Gateway und seine Routen unverändert bleiben.
+  - Der Ingress behält eine einzige Regel (`/ → frontend`).
+  - Die App nutzt relative URLs, ein Image bedient also jede Umgebung, und CORS wird nicht mehr
+    gebraucht.
+  - Preis: ein zusätzlicher Hop, und nginx muss WebSocket-Upgrades durchreichen.
+- **B. Ingress-Aufteilung (`/api → api-gateway`, `/ → frontend`) und ein Gateway, das `/api`
+  akzeptiert.**
+  - Ohne Controller-spezifisches Entfernen des Präfixes wandert jede Gateway-Route auf `/api/**`
+    plus `StripPrefix`. Das ändert das Gateway, seine Tests, `demo.js` und die Compose-Ports.
+- **C. Getrennte Hosts (`app.…`, `api.…`) mit einer `config.json` zur Laufzeit.**
+  - Braucht pro Umgebung einen CORS-Origin und DNS-Namen sowie einen Config-Abruf, bevor die App
+    startet. Das sind die meisten beweglichen Teile für dasselbe Ergebnis.
+
+### Webserver
+- **nginx-unprivileged (gewählt).** Das offizielle NGINX/F5-Image läuft als Nicht-Root-Nutzer
+  (UID 101) auf Port 8080 und wird für amd64 und arm64 gebaut
+  ([Docker Hub](https://hub.docker.com/r/nginxinc/nginx-unprivileged),
+  [GitHub](https://github.com/nginx/docker-nginx-unprivileged)). Sein Entrypoint rendert
+  `/etc/nginx/templates/*.template` beim Containerstart mit `envsubst`.
+- **Offizielles `nginx`.** Dieselbe Konfiguration, läuft aber als Root auf Port 80.
+- **Caddy.** Eine kürzere Konfiguration, aber ein weiteres Werkzeug neben dem Rest des Stacks.
+
+## Entscheidung
+
+- **`frontend/Dockerfile`, mehrstufig:**
+  - `node:24-alpine` führt `npm ci` und `ng build` aus, mit der Produktionskonfiguration als
+    Standard.
+  - `nginxinc/nginx-unprivileged:1.30-alpine` liefert `dist/frontend/browser` aus.
+  - Beide Images sind Multi-Arch, einschließlich arm64.
+- **`frontend/nginx/default.conf.template`:**
+  - `location /api/` proxyt an `${API_GATEWAY_URL}/` mit HTTP/1.1 und
+    `Upgrade`/`Connection`-Headern sowie 1 h Lese-Timeout für offene Sitzplan-WebSockets.
+  - `NGINX_ENVSUBST_FILTER=^API_GATEWAY_URL$` beschränkt die Ersetzung auf diese eine Variable,
+    sodass nginx' eigene `$host` und `$http_upgrade` unangetastet bleiben.
+  - Der SPA-Fallback ist `try_files $uri $uri/ /index.html`. `index.html` wird mit
+    `Cache-Control: no-cache` ausgeliefert, Assets mit Hash mit einjährigem Immutable-Cache.
+  - `/healthz` bedient die Probes und hängt nicht vom Gateway ab.
+- **Das Angular-Environment** nutzt `apiBaseUrl: '/api'`. `wsBaseUrl` wird aus `location`
+  abgeleitet: `ws:` oder `wss:` passend zur Seite, gefolgt von `//host/api`.
+- **`ng serve`** erhält `proxy.conf.json` (`/api → localhost:8080`, Präfix entfernt, `ws: true`).
+  Die lokale Entwicklung nutzt daher dieselben relativen URLs wie der Container.
+- **Kubernetes:**
+  - `k8s/base/services/frontend.yaml` fügt ein Deployment und einen Service auf Port 8080 hinzu,
+    mit `runAsNonRoot`, `allowPrivilegeEscalation: false` und `enableServiceLinks: false`.
+  - Ressourcen sind 16 Mi angefordert und 64 Mi Limit.
+  - Der Ingress `/` zeigt nun auf `frontend`. API-Aufrufe laufen über `/api`.
+- **docker-compose** erhält einen `frontend`-Service auf Host-Port 8000, demselben Port wie der
+  kind-Ingress. Die App hat in beiden Setups eine URL; beide laufen auf dieser Maschine nie
+  gleichzeitig.
+- **CI:** `node ci.js frontend --docker` baut zusätzlich das Image. Der Frontend-Job des Workflows
+  nutzt dieses Flag, wie es die Service-Jobs bereits tun.
+
+ADR-016s „pro Umgebung gesetzte API- und WebSocket-URLs“ wird hierdurch ersetzt. Nur der Upstream
+`API_GATEWAY_URL` variiert pro Umgebung, und er ist in Dev und Prod derselbe In-Cluster-Servicename.
+
+## Konsequenzen
+
+**Positiv**
+- Ein Image für Dev und Prod. Nichts zum Ort der API ist in den Build eingebacken.
+- Der Browser stellt nur Same-Origin-Anfragen, also keine CORS-Preflights.
+- Gateway, seine Routen und `demo.js` bleiben unverändert.
+- Deep Links und Neuladen auf clientseitigen Routen funktionieren.
+
+**Negativ / akzeptiert**
+- **Ein zusätzlicher Hop** (Ingress → nginx → Gateway). Auf kind kam der WebSocket-Push einer
+  Reservierung nach etwa 120–160 ms über nginx an, gegenüber etwa 100 ms direkt am Gateway.
+- **API-URLs haben sich verschoben.** Über den Ingress ist die API nun `localhost:8000/api/...`,
+  nicht `localhost:8000/...`. Direkte Aufrufe des Gateways (`:8080`, von `demo.js` genutzt)
+  bleiben unverändert.
+- **Die CORS-Konfiguration des Gateways wird von der App nun nicht mehr genutzt.** Sie bleibt für
+  direkte API-Clients bestehen und könnte später verengt werden.
+- **nginx löst `api-gateway` einmal beim Start auf.** In Kubernetes ist der Servicename stabil,
+  das ist also in Ordnung. Ein noch nicht existierender Gateway-Service hindert den Frontend-Pod
+  am Start, bis er existiert.
+- **Same-Origin funktioniert nur hinter diesem nginx oder dem `ng serve`-Proxy.** Öffnet man die
+  gebauten Dateien auf andere Weise, gibt es kein `/api`.
