@@ -44,7 +44,8 @@ jobs:
   deploy:
     name: deploy ${{ inputs.tag }} (${{ inputs.tls_issuer }})
     runs-on: ubuntu-26.04
-    timeout-minutes: 20
+    # The first install of the monitoring stack pulls its images and takes about 5 minutes on its own.
+    timeout-minutes: 30
     environment:
       name: production
       url: ${{ vars.PROD_BASE_URL }}
@@ -79,6 +80,7 @@ jobs:
       - name: Deploy
         env:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
           GATEWAY_CORS_ALLOWED_ORIGINS: ${{ vars.GATEWAY_CORS_ALLOWED_ORIGINS }}
           TAG: ${{ inputs.tag }}
           TLS_ISSUER: ${{ inputs.tls_issuer }}

@@ -9,4 +9,5 @@ providers:
     updateIntervalSeconds: 30
     allowUiUpdates: true
     options:
-      path: /etc/grafana/provisioning/dashboards
+      # Mounted from k8s/monitoring/dashboards, which prod's Grafana loads too (ADR-026).
+      path: /var/lib/grafana/dashboards

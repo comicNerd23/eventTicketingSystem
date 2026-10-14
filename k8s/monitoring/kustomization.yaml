@@ -1,0 +1,17 @@
+# What the monitoring stack (ADR-026) needs from this repository, applied after the Helm release
+# because the ServiceMonitor needs the Prometheus Operator's CRDs. k8s/base stays free of them,
+# so a cluster without the monitoring stack still works.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - service-monitor.yaml
+configMapGenerator:
+  # Shared with the Compose stack, which mounts the same directory.
+  - name: ticketing-dashboards
+    namespace: monitoring
+    files:
+      - dashboards/ticketing-overview.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"

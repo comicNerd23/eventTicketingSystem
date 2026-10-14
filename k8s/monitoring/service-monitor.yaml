@@ -1,0 +1,16 @@
+# Scrapes /actuator/prometheus on every Service labelled metrics: actuator (the six backend
+# services in k8s/base). The job label is the Service's name, as in docker/prometheus, so the
+# dashboard's queries work unchanged.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ticketing-services
+  namespace: ticketing
+spec:
+  selector:
+    matchLabels:
+      metrics: actuator
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: 15s

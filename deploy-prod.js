@@ -12,6 +12,7 @@
 // Required environment variables (in the deploy job: GitHub Actions secrets):
 //   DB_PASSWORD                    password for every service's Postgres user
 //   GATEWAY_CORS_ALLOWED_ORIGINS   the public origin of the app, e.g. https://tickets.example.org
+//   GRAFANA_ADMIN_PASSWORD         password of Grafana's admin user (ADR-026)
 // Optional:
 //   DB_USERNAME                    defaults to "ticketing"
 //
@@ -19,7 +20,10 @@
 // version, checksum verified), write the db-credentials Secret and gateway-config ConfigMap,
 // render the overlay with tag, host and issuer, apply, wait for every rollout and for the
 // certificate, then smoke-test through the Ingress: HTTPS, the HTTP -> HTTPS redirect, and that
-// the gateway's actuator is not reachable from outside.
+// the gateway's actuator is not reachable from outside. Last, the monitoring stack (ADR-026):
+// the kube-prometheus-stack Helm release (pinned version and digest), k8s/monitoring, and a check
+// that Prometheus scrapes all six services. It comes after the app, so a monitoring problem
+// never holds back an app deploy.
 //
 // The kube-context must be named explicitly; the current context is never used, so a dev
 // session can't deploy to prod (or the other way round) by accident. Secret values are piped to
@@ -27,8 +31,8 @@
 
 const crypto = require("node:crypto");
 const tls = require("node:tls");
-const { spawnSync } = require("node:child_process");
-const { ROOT, NAMESPACE, TARGETS, log, fail, run, capture, waitForRollouts, smokeCheck } = require("./k8s-helpers");
+const { spawn, spawnSync } = require("node:child_process");
+const { ROOT, NAMESPACE, SERVICES, TARGETS, log, fail, run, capture, waitForRollouts, smokeCheck } = require("./k8s-helpers");
 
 const REGISTRY_REPO = "comicnerd23/ticketing";
 const TAG_PLACEHOLDER = "set-by-deploy";
@@ -46,10 +50,22 @@ const CERT_MANAGER_URL = `https://github.com/cert-manager/cert-manager/releases/
 const CERT_MANAGER_SHA256 = "e03b668ec8675214af6b0a671699d088f2601fa3878e0dbe1b41d3feafd1879f";
 const CERT_MANAGER_DEPLOYMENTS = ["cert-manager", "cert-manager-cainjector", "cert-manager-webhook"];
 
+// kube-prometheus-stack from its OCI registry, pinned by version and digest: Helm fetches by the
+// digest, so a re-pushed tag can't change what gets installed. To upgrade: read the chart's
+// upgrade notes (CRD changes), then take version and digest from
+// `helm show chart oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack --version <v>`.
+const MONITORING_CHART_VERSION = "91.9.0";
+const MONITORING_CHART_DIGEST = "sha256:04047e500c803dc8d2bc284ecb43e9229bb32b5c36bd13fc89592c8a2f3cdc72";
+const MONITORING_CHART = `oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack:${MONITORING_CHART_VERSION}@${MONITORING_CHART_DIGEST}`;
+const MONITORING_RELEASE = "monitoring";
+const MONITORING_NAMESPACE = "monitoring";
+const PROMETHEUS_SERVICE = "monitoring-kube-prometheus-prometheus";
+const SCRAPE_TIMEOUT_MS = 180_000;
+
 function usage() {
   log("Usage: node deploy-prod.js --context=<kube-context> --tag=<sha-1234567|vX.Y.Z> --base-url=https://<host>");
   log(`       [--tls-issuer=${ISSUERS.join("|")}]  (default: letsencrypt-prod)`);
-  log("Env:   DB_PASSWORD, GATEWAY_CORS_ALLOWED_ORIGINS (required); DB_USERNAME (default: ticketing)");
+  log("Env:   DB_PASSWORD, GATEWAY_CORS_ALLOWED_ORIGINS, GRAFANA_ADMIN_PASSWORD (required); DB_USERNAME (default: ticketing)");
   process.exit(2);
 }
 
@@ -250,6 +266,71 @@ function inspectServedCertificate(host) {
   });
 }
 
+// The Helm release, then what k8s/monitoring adds: the ServiceMonitor needs the Operator's CRDs,
+// which the release installs. The Grafana admin Secret must exist before Grafana starts.
+function installMonitoring(context, kubectl, grafanaPassword) {
+  log(`>>> Installing the monitoring stack (kube-prometheus-stack ${MONITORING_CHART_VERSION}, ADR-026)`);
+  const docs = [
+    { apiVersion: "v1", kind: "Namespace", metadata: { name: MONITORING_NAMESPACE } },
+    {
+      apiVersion: "v1",
+      kind: "Secret",
+      metadata: { name: "grafana-admin", namespace: MONITORING_NAMESPACE },
+      type: "Opaque",
+      stringData: { "admin-user": "admin", "admin-password": grafanaPassword },
+    },
+  ];
+  log("    namespace and grafana-admin Secret (value not shown)");
+  run("kubectl", [...kubectl, "apply", "-f", "-"], { input: JSON.stringify({ apiVersion: "v1", kind: "List", items: docs }) });
+  // upgrade --install: installs the first time, upgrades (or changes nothing) afterwards. Each
+  // run is a revision that `helm rollback` can return to; a failed one is rolled back at once.
+  // The chart's notes are hidden: they point at a password Secret that existingSecret replaces.
+  run("helm", [
+    "--kube-context", context, "-n", MONITORING_NAMESPACE,
+    "upgrade", "--install", MONITORING_RELEASE, MONITORING_CHART,
+    "-f", "k8s/monitoring/values.yaml",
+    "--rollback-on-failure", "--wait", "--timeout", "10m", "--hide-notes",
+  ]);
+  run("kubectl", [...kubectl, "apply", "-k", "k8s/monitoring"]);
+  log("");
+}
+
+// Asks Prometheus itself, through a port-forward, whether every service is scraped. The first
+// scrape needs the Operator to turn the ServiceMonitor into config and Prometheus to reload it.
+async function waitForScrapeTargets(kubectl) {
+  log(">>> Waiting until Prometheus scrapes all six services");
+  const port = 19090;
+  const forward = spawn("kubectl", [...kubectl, "-n", MONITORING_NAMESPACE, "port-forward", `svc/${PROMETHEUS_SERVICE}`, `${port}:9090`], { stdio: "ignore" });
+  try {
+    const started = Date.now();
+    let lastState = "";
+    while (Date.now() - started < SCRAPE_TIMEOUT_MS) {
+      await new Promise((r) => setTimeout(r, 5000));
+      let targets;
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/v1/targets?state=active`);
+        targets = (await res.json()).data.activeTargets;
+      } catch {
+        continue; // port-forward not up yet
+      }
+      const up = new Set(targets.filter((t) => t.health === "up").map((t) => t.labels.job));
+      const missing = SERVICES.filter((s) => !up.has(s));
+      const state = missing.length ? `not yet up: ${missing.join(", ")}` : "all up";
+      if (state !== lastState) log(`    ${state}`);
+      lastState = state;
+      if (!missing.length) {
+        log("");
+        return;
+      }
+    }
+    // fail() exits the process, which skips the finally block below.
+    forward.kill();
+    fail(`Prometheus doesn't scrape every service after ${SCRAPE_TIMEOUT_MS / 1000}s (${lastState})`);
+  } finally {
+    forward.kill();
+  }
+}
+
 async function main() {
   const { context, tag, baseUrl, host, issuer } = parseArgs();
   const config = {
@@ -257,6 +338,7 @@ async function main() {
     dbPassword: requireEnv("DB_PASSWORD"),
     corsOrigins: requireEnv("GATEWAY_CORS_ALLOWED_ORIGINS"),
   };
+  const grafanaPassword = requireEnv("GRAFANA_ADMIN_PASSWORD");
   const kubectl = ["--context", context];
   if (capture("kubectl", [...kubectl, "get", "--raw", "/readyz"]) === null) {
     fail(`cluster of kube-context "${context}" is not reachable`);
@@ -303,6 +385,9 @@ async function main() {
     },
   ]);
 
+  installMonitoring(context, kubectl, grafanaPassword);
+  await waitForScrapeTargets(kubectl);
+
   const seconds = Math.round((Date.now() - started) / 1000);
   log("=========================================");
   log(`  Done in ${seconds}s — ${tag} is live at ${baseUrl}`);
@@ -317,4 +402,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { checkTagExists, renderOverlay };
+module.exports = { checkTagExists, renderOverlay, installMonitoring, waitForScrapeTargets };

@@ -1,0 +1,76 @@
+# Helm values for kube-prometheus-stack (ADR-026). Only what differs from the chart's defaults;
+# `helm show values oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack --version <v>`
+# prints all of them. The chart version and digest are pinned where the chart is installed
+# (deploy-prod.js).
+
+# k3s runs etcd, the controller manager, the scheduler and kube-proxy inside its own binary, not
+# as pods, so the chart's scrape targets for them would always be down. Their alert and
+# recording rules go with them.
+kubeEtcd: { enabled: false }
+kubeControllerManager: { enabled: false }
+kubeScheduler: { enabled: false }
+kubeProxy: { enabled: false }
+defaultRules:
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeProxy: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+
+prometheus:
+  prometheusSpec:
+    # Pick up every ServiceMonitor and PodMonitor in the cluster, not only those labelled with
+    # this release: one cluster, one Prometheus.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    retention: 7d
+    retentionSize: 4GB
+    # The cluster's default StorageClass: local-path on k3s, standard on kind.
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources: { requests: { storage: 5Gi } }
+    resources:
+      requests: { memory: 400Mi, cpu: 100m }
+      limits: { memory: 1Gi }
+
+# No receivers yet: alerts are visible in the Prometheus and Alertmanager UIs. Routing them to a
+# channel is a later slice.
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { memory: 32Mi, cpu: 10m }
+      limits: { memory: 128Mi }
+
+grafana:
+  # Created by deploy-prod.js from GRAFANA_ADMIN_PASSWORD; the repository holds no password.
+  admin:
+    existingSecret: grafana-admin
+  # The sidecar loads every ConfigMap labelled grafana_dashboard: "1" (k8s/monitoring) next to
+  # the chart's own dashboards. No volume: dashboards come from Git.
+  # Measured in kind on 2026-10-05: Grafana 288 MiB, each of the two sidecars about 72 MiB.
+  resources:
+    requests: { memory: 256Mi, cpu: 50m }
+    limits: { memory: 512Mi }
+  # Applies to both sidecars (dashboards and datasources).
+  sidecar:
+    resources:
+      requests: { memory: 64Mi, cpu: 10m }
+      limits: { memory: 160Mi }
+
+prometheusOperator:
+  resources:
+    requests: { memory: 48Mi, cpu: 20m }
+    limits: { memory: 192Mi }
+
+kube-state-metrics:
+  resources:
+    requests: { memory: 32Mi, cpu: 10m }
+    limits: { memory: 128Mi }
+
+prometheus-node-exporter:
+  resources:
+    requests: { memory: 24Mi, cpu: 10m }
+    limits: { memory: 64Mi }
