@@ -1,4 +1,4 @@
-# Runbook: Production deployment on Oracle Always Free (ADR-021, ADR-022)
+# Runbook: Production deployment on Oracle Always Free (ADR-021, ADR-022, ADR-026)
 
 This runbook covers everything from an empty Oracle account to a running production deployment:
 
@@ -9,6 +9,7 @@ This runbook covers everything from an empty Oracle account to a running product
 | [C](#part-c--deploy-a-release-every-deploy) | Build images, deploy a tag, verify, roll back | every deploy | you start it, GitHub Actions runs it |
 | [D](#part-d--seed-demo-data-optional) | Seed the demo catalog | optional | you, over an SSH tunnel |
 | [E](#part-e--switch-an-http-deployment-to-https-once) | Switch a deployment from before ADR-022 to HTTPS | once | you |
+| [F](#part-f--open-grafana-prometheus-and-alertmanager) | Open Grafana, Prometheus and Alertmanager | whenever needed | you, over an SSH tunnel |
 
 How a deploy reaches the VM:
 
@@ -227,6 +228,21 @@ often doesn't see an interactive terminal, so no prompt appears and no secret is
 Hex avoids characters that would need escaping in URLs or YAML. Postgres only takes the password
 when its volume is first created; see [Notes](#notes) for changing it later.
 
+### B5b. `GRAFANA_ADMIN_PASSWORD` — Grafana's admin login (ADR-026)
+
+Same steps as B5, again **into your password manager first**:
+
+```bash
+openssl rand -hex 24
+read -rs -p "Grafana password: " P; echo
+printf '%s' "$P" | gh secret set GRAFANA_ADMIN_PASSWORD --env production
+unset P
+```
+
+Every deploy writes it into the `grafana-admin` Secret. Grafana reads it at startup, so a changed
+password takes effect after the next deploy and `kubectl -n monitoring rollout restart
+deployment/monitoring-grafana`.
+
 ### B6. Variables (not secret)
 
 ```bash
@@ -245,8 +261,8 @@ gh secret list   --env production
 gh variable list --env production
 ```
 
-Expected: **4 secrets** (`DB_PASSWORD`, `PROD_KUBECONFIG`, `PROD_SSH_KNOWN_HOSTS`,
-`PROD_SSH_PRIVATE_KEY`) and **3 variables** (`GATEWAY_CORS_ALLOWED_ORIGINS`, `PROD_BASE_URL`,
+Expected: **5 secrets** (`DB_PASSWORD`, `GRAFANA_ADMIN_PASSWORD`, `PROD_KUBECONFIG`,
+`PROD_SSH_KNOWN_HOSTS`, `PROD_SSH_PRIVATE_KEY`) and **3 variables** (`GATEWAY_CORS_ALLOWED_ORIGINS`, `PROD_BASE_URL`,
 `PROD_SSH_TARGET`).
 
 ---
@@ -306,6 +322,10 @@ The job:
    - waits until the certificate is issued by the chosen issuer and prints its issuer and expiry,
    - smoke-tests `PROD_BASE_URL` over HTTPS, the HTTP → HTTPS redirect, and that
      `/api/actuator/health` returns 404,
+   - installs or upgrades the monitoring stack (ADR-026): the `grafana-admin` Secret, the Helm
+     release `monitoring` (kube-prometheus-stack, pinned version and digest) and `k8s/monitoring`,
+     then waits until Prometheus scrapes all six services. This comes after the app on purpose:
+     if it fails, the new release is already live,
 4. closes the tunnel, also on failure.
 
 The first deploy takes longer: the VM pulls every image and Postgres initialises its volume. The
@@ -415,6 +435,43 @@ A5 and B6.
 
 ---
 
+## Part F — Open Grafana, Prometheus and Alertmanager
+
+None of the three has an Ingress (ADR-026): they are reachable only through `kubectl
+port-forward`, over the same tunnel as in Part D. Steps 0–3 of Part D first, in the same Git Bash
+window, then:
+
+```bash
+# Grafana: http://localhost:3000, user admin, password from B5b
+kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80
+
+# Prometheus (targets: http://localhost:9090/targets), in a second window with the same KUBECONFIG
+kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090
+
+# Alertmanager: http://localhost:9093
+kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-alertmanager 9093:9093
+```
+
+`Ctrl+C` stops a port-forward. Clean up afterwards with Part D, step 5.
+
+In Grafana, **Dashboards** lists *Ticketing Platform Overview* (our services, from
+`k8s/monitoring/dashboards`) next to the chart's dashboards for the node, the pods and the
+cluster (*Kubernetes / Compute Resources / …*, *Node Exporter / Nodes*).
+
+Helm commands for the release, with the same `KUBECONFIG`:
+
+```bash
+helm -n monitoring list                      # release, chart version, revision, status
+helm -n monitoring history monitoring        # every revision
+helm -n monitoring rollback monitoring <n>   # back to revision n
+helm -n monitoring get values monitoring     # the values in use (= k8s/monitoring/values.yaml)
+```
+
+A rollback only lasts until the next deploy, which installs what `deploy-prod.js` and
+`k8s/monitoring/values.yaml` say again.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
@@ -422,6 +479,8 @@ A5 and B6.
 | "Assign a public IPv4 address" is greyed out | The subnet is private. Select a public subnet, or add an ephemeral IP afterwards (A4). |
 | "Out of capacity" when creating the instance | No free A1 capacity right now. Try another availability domain or later. |
 | B7 lists only 3 secrets, `DB_PASSWORD` missing | `gh` didn't prompt in Git Bash. Set it with the `read -rs` pipe from B5. |
+| Deploy fails with "environment variable GRAFANA_ADMIN_PASSWORD is not set" | The secret from B5b is missing. Set it, then run the deploy again. |
+| Deploy fails at "Waiting until Prometheus scrapes all six services" | The app is already live at this point. Check the targets in Prometheus (F) for the error; a service without the `metrics: actuator` label or the `http` port name isn't selected. |
 | `ssh: connect to host  port 22: Connection refused` (two spaces) | `$IP` is empty, usually because it was set in another window. Set it again in this one (D, step 0). |
 | `ssh: Permission denied (publickey)` | `-i ~/.ssh/ticketing-deploy` missing, or the instance was created with a different key: add `ticketing-deploy.pub` to `~/.ssh/authorized_keys` on the VM. |
 | `curl http://$IP/` times out | Port 80 blocked: check the ingress rule (A5), then re-run `setup-k3s.sh` (A7). |

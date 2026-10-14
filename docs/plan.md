@@ -1137,6 +1137,29 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
 
 **Pushed as `874c777`:** [CI run 37288101747](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37288101747) is green, the frontend's Sonar gate passed, and Dependabot and code scanning both still have 0 open alerts. [Release images run 37290822544](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37290822544) published `sha-874c777` for all seven images (amd64 + arm64). **Deployed to prod:** Claude Code's auto mode blocked starting `deploy-prod.yml`, so the user started it. [Deploy prod run 37291705915](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/37291705915) is green with `sha-874c777`. The checks from runbook part C3 pass: frontend 200, `/api/events` 200, `/api/actuator/health` 404, and HTTP redirects to HTTPS. Prod serves `main-RHE3Z5L7.js`, the same bundle hash as the local Angular 22 build.
 
+### 2026-10-05 — Metrics in prod with kube-prometheus-stack (ADR-026), built and verified locally
+
+**The user's choice:** option B, kube-prometheus-stack via Helm, because they want to learn Helm the way companies use it. Options A (own manifests) and C (Grafana Cloud free tier) are in ADR-026. Access only through `kubectl port-forward`.
+
+**What changed:**
+- `k8s/monitoring/values.yaml`: only what differs from the chart's defaults. The k3s components (etcd, controller manager, scheduler, kube-proxy) and their rules are off. Prometheus picks up every ServiceMonitor, keeps 7 days (at most 4 GB) on a 5 GiB volume. Alertmanager has no receivers yet. Grafana takes its admin login from the `grafana-admin` Secret. Requests and limits for every component.
+- `k8s/monitoring/kustomization.yaml`: one ServiceMonitor for the Services labelled `metrics: actuator`, and the dashboard as a ConfigMap labelled `grafana_dashboard: "1"`.
+- `k8s/base/services/*`: the six backend Services carry `metrics: actuator`, and their port is named `http`.
+- `ticketing-overview.json` moved to `k8s/monitoring/dashboards/` (Kustomize doesn't read outside its directory). Compose mounts that directory now.
+- `deploy-prod.js`: as its last step, after the app's smoke checks, it writes the `grafana-admin` Secret from `GRAFANA_ADMIN_PASSWORD`, runs `helm upgrade --install` with the chart pinned as `kube-prometheus-stack:91.9.0@sha256:04047e50…`, applies `k8s/monitoring`, and waits until Prometheus scrapes all six services. `deploy-prod.yml` passes the new secret and has a 30-minute timeout.
+- Runbook: B5b (the new secret), C2 (the new step), part F (opening Grafana, Prometheus and Alertmanager, Helm commands), two troubleshooting rows.
+
+**Checked before building (2026-10-05):** chart 91.9.0 is current (2026-10-02); all eight images have arm64 variants; Helm 4.2.3 is preinstalled on GitHub's ubuntu-26.04 runners, the same as Rancher Desktop's locally. Helm 4 renamed `--atomic` to `--rollback-on-failure`.
+
+**Verified locally in kind** (details in ADR-026): every target `up`, the dashboard loads and shows values, upgrade → rollback → upgrade works, `deploy-prod.js`'s monitoring step passes and fails as it should. The stack uses about **0.7 GB** (Grafana 288 MiB was close to its first limit of 384 Mi, now 512 Mi). Prometheus held **45,898 series** with three services.
+
+**Found along the way:**
+- **`fail()` skips `finally`:** it calls `process.exit`, so the port-forward's cleanup wouldn't run on a failed scrape check. Fixed by killing it before `fail()`.
+- **The chart's install notes** name a password Secret that `existingSecret` replaces. The deploy hides them (`--hide-notes`).
+- kind only had room for three services next to the monitoring stack (3.2 of 3.8 GB in use, 0.7 GB free on the host).
+
+**Next:** the user sets `GRAFANA_ADMIN_PASSWORD` (runbook B5b), then a deploy of the current release puts the stack on prod. Open Grafana with runbook part F.
+
 ### Where things stand on 2026-10-05 (resume here)
 
 **Live:**
@@ -1145,6 +1168,8 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
 - **Open alerts:** 0 Dependabot, 0 code scanning. No Dependabot PRs are open.
 
 **Prod runs `master`:** release images `sha-874c777`, deployed on 2026-10-05, with the log-injection fix, the dependency updates and Angular 22 (ADR-025).
+
+**In progress: metrics in prod (ADR-026).** Built and verified locally. The user sets the GitHub secret `GRAFANA_ADMIN_PASSWORD` (runbook B5b); after commit and push, **Deploy prod** with `sha-874c777` installs the stack (the images don't change, only `deploy-prod.js` and `k8s/`). Then open Grafana (runbook part F) and check that all six services are `up`.
 
 **Next options, the user to pick:**
 1. **Secret scanning and push protection**, both repository settings, still off.
@@ -1159,6 +1184,7 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
   - The local prod kubeconfig `~/.kube/ticketing-prod.yaml` is deleted. Runbook part D, step 1 fetches it again when needed.
 - **Docker Desktop restarts kind's control plane.** Check `docker ps` for `ticketing-control-plane` after an engine restart and stop it, unless kind is wanted.
 - **The full compose stack doesn't fit next to `ng serve` on this machine.** For frontend checks, run the reduced stack above.
+- **kind holds the monitoring stack only next to three services.** The Helm release `monitoring` stays installed in the (stopped) kind cluster.
 
 ---
 
