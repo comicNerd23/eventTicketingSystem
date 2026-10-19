@@ -1158,18 +1158,29 @@ Whether to dismiss them in code scanning (alerts #1 and #2) with this reasoning 
 - **The chart's install notes** name a password Secret that `existingSecret` replaces. The deploy hides them (`--hide-notes`).
 - kind only had room for three services next to the monitoring stack (3.2 of 3.8 GB in use, 0.7 GB free on the host).
 
-**Next:** the user sets `GRAFANA_ADMIN_PASSWORD` (runbook B5b), then a deploy of the current release puts the stack on prod. Open Grafana with runbook part F.
+**Next:** the user sets `GRAFANA_ADMIN_PASSWORD` (runbook B5b), then a deploy of the current release puts the stack on prod. Open Grafana with runbook part F. (Done on 2026-10-19, see below.)
 
-### Where things stand on 2026-10-05 (resume here)
+### 2026-10-19 — Metrics live on prod, favicon, `source-map-js` fix, release `sha-9de52a4`
+
+- **Favicon:** the tab still showed the default icon. `frontend/public/favicon.svg` now draws the header logo (the tilted pink "ET" tile, same colors), `index.html` links it and sets `theme-color` to the page background. `favicon.ico` is removed (`72c6dbb`).
+- **Dependabot alert 42 (high), `source-map-js`:** event-loop denial of service through indexed source-map section offsets. It is a build-time dependency (PostCSS, Sass, Tailwind), not part of the runtime image. Fixed with 1.2.1 → 1.2.2 in `frontend/package-lock.json` (`9de52a4`); `npm audit` 0, `node ci.js frontend` passes. The user confirmed the alert shows **Fixed**. Dependabot PR #23 made the same bump and is redundant.
+- **Pushed:** the four local commits (German ADRs, monitoring stack, docs, favicon) plus the fix, `f543f30..9de52a4`. CI, CodeQL and Dependabot Updates are green for `9de52a4`.
+- **Released and deployed:** the user started [Release images run 39237333019](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/39237333019) (`sha-9de52a4`) and then [Deploy prod run 39239128218](https://github.com/comicNerd23/eventTicketingSystem/actions/runs/39239128218) with `letsencrypt-prod`. Auto mode blocks starting both workflows and closing PRs for Claude Code.
+- **What the deploy log shows:** certificate `ticketing-tls` ready and signed by `letsencrypt-prod`; Helm release `monitoring` (kube-prometheus-stack 91.9.0) `deployed` after about 3 minutes; Prometheus reported all six services `up` about 40 seconds after the first check (the first install of the stack pulled its images, the whole run took about 7 minutes).
+- **Secrets:** `GRAFANA_ADMIN_PASSWORD` (Environment `production`) and the `SONAR_TOKEN` (repository secret) are both kept in the user's Bitwarden now. GitHub can't show a secret's value, so Bitwarden is the only place to read them.
+- **Checked by the user in a browser:** the favicon looks right on the live site, and Grafana opens over `kubectl port-forward` (runbook part F) with the `admin` login. The dashboard shows all six services running, and the user cleaned up the tunnel and the kubeconfig afterwards. The first attempt failed because `kubectl` ran in a Windows `cmd` window with the default kubeconfig (a local cluster, connection refused); Part F needs steps 0–3 of Part D in the same Git Bash window first. Dependabot PR #23 is closed.
+
+### Where things stand on 2026-10-19 (resume here)
 
 **Live:**
 - **Prod** runs at `https://<IP with dashes>.sslip.io`, with a Let's Encrypt certificate valid until 2027-01-02 that cert-manager renews by itself.
 - **CI** runs on Ubuntu 26.04 with Node 24 actions. It analyzes every target in SonarQube Cloud (seven projects, Free plan, baseline = Previous version, all gates green), next to CodeQL and Dependabot.
-- **Open alerts:** 0 Dependabot, 0 code scanning. No Dependabot PRs are open.
+- **Open alerts:** 0 Dependabot, 0 code scanning. Dependabot PR #23 is closed; PRs #19–#22 (TypeScript 7, the minor/patch group, Vitest 5) are open and not looked at yet.
+- **Metrics in prod (ADR-026):** the monitoring stack runs, Prometheus scrapes all six services. Grafana and Prometheus are reachable only through `kubectl port-forward` (runbook part F).
 
-**Prod runs `master`:** release images `sha-874c777`, deployed on 2026-10-05, with the log-injection fix, the dependency updates and Angular 22 (ADR-025).
+**Prod runs `master`:** release images `sha-9de52a4`, deployed on 2026-10-19, with the monitoring stack, the new favicon and the `source-map-js` fix on top of Angular 22 (ADR-025).
 
-**In progress: metrics in prod (ADR-026).** Built and verified locally. The user sets the GitHub secret `GRAFANA_ADMIN_PASSWORD` (runbook B5b); after commit and push, **Deploy prod** with `sha-874c777` installs the stack (the images don't change, only `deploy-prod.js` and `k8s/`). Then open Grafana (runbook part F) and check that all six services are `up`.
+**To do:** nothing open for this slice. Clean up after a Grafana session with Part D, step 5 (stop the tunnel, delete `~/.kube/ticketing-prod.yaml`).
 
 **Next options, the user to pick:**
 1. **Secret scanning and push protection**, both repository settings, still off.
